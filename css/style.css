@@ -1,0 +1,140 @@
+/* PixelFX Survivor ─ pixelfx vampire-like */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html, body {
+  width: 100%; height: 100%;
+  background: #05070a;
+  overflow: hidden;
+  font-family: "MS Gothic", "Osaka-Mono", monospace;
+  color: #dfe6ee;
+  user-select: none;
+}
+
+/* ---- 画面 ---- */
+#stage {
+  position: relative;
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+  margin: auto;
+  top: 50%; transform: translateY(-50%);
+}
+#screen {
+  width: 100%; height: 100%;
+  display: block;
+  image-rendering: pixelated;
+  background: #0a0f14;
+}
+
+/* ---- HUD ---- */
+#hud { position: absolute; inset: 0; pointer-events: none; font-size: 15px; }
+#xpwrap {
+  position: absolute; top: 6px; left: 6%; width: 88%; height: 14px;
+  background: #0c1220cc; border: 1px solid #2a3a55; box-shadow: 0 0 0 1px #05070a;
+}
+#xpfill { height: 100%; width: 0%; background: linear-gradient(#7fd4ff, #2f8fd8); transition: width .15s; }
+#lvl { position: absolute; left: 4px; top: -1px; font-size: 13px; line-height: 15px; color: #05203a; font-weight: bold; text-shadow: 0 0 2px #9fdcff; white-space: nowrap; z-index: 1; }
+#clock {
+  position: absolute; top: 24px; right: 8px; font-size: 19px; color: #ffde5e;
+  text-shadow: 1px 1px 0 #000;
+}
+#killcount { position: absolute; top: 24px; left: 8px; font-size: 16px; color: #ff8a8e; text-shadow: 1px 1px 0 #000; }
+#coincount { position: absolute; top: 46px; left: 8px; font-size: 16px; color: #ffce4a; text-shadow: 1px 1px 0 #000; }
+#hpwrap {
+  position: absolute; bottom: 8px; left: 8px; width: 150px; height: 16px;
+  background: #0c1220cc; border: 1px solid #552a2a;
+}
+#hpfill { height: 100%; width: 100%; background: linear-gradient(#ff6a5a, #c9281f); transition: width .12s; }
+#hptext { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 16px; color: #fff; text-shadow: 1px 1px 0 #000; }
+#weapons { position: absolute; bottom: 8px; right: 8px; display: flex; gap: 4px; }
+#weapons span {
+  font-size: 13px; padding: 2px 6px; background: #101a2add; border: 1px solid #334;
+  color: #cfe3ff; white-space: nowrap;
+}
+#weapons span.new { animation: pop .5s; border-color: #ffde5e; color: #ffde5e; }
+@keyframes pop { 0% { transform: scale(1.8); } 100% { transform: scale(1); } }
+
+/* 被ダメ flashes */
+#dmgflash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(transparent 55%, #b3122088); opacity: 0; transition: opacity .25s; }
+#dmgflash.on { opacity: 1; transition: opacity 0s; }
+
+/* ---- オーバーレイ ---- */
+.overlay {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 14px; text-align: center;
+  background: #050a12dd;
+  backdrop-filter: blur(2px);
+}
+.hidden { display: none !important; }
+
+#title h1 {
+  font-size: clamp(34px, 8vw, 72px); letter-spacing: .08em; line-height: 1;
+  color: #ffde5e; text-shadow: 3px 3px 0 #7a2c12, 6px 6px 0 #000;
+}
+#title h1 span { display: block; font-size: .55em; color: #7fd4ff; text-shadow: 2px 2px 0 #123, 4px 4px 0 #000; }
+.sub { font-size: clamp(13px, 2vmin, 17px); color: #9fb4cc; }
+.sub b { color: #ffde5e; }
+.keys { display: grid; gap: 5px; font-size: clamp(12px, 1.9vmin, 16px); color: #cfd8e8; }
+.keys b { color: #ffde5e; }
+.goal { font-size: clamp(13px, 2vmin, 17px); color: #ff8a8e; }
+button {
+  pointer-events: auto; cursor: pointer;
+  font: inherit; font-size: clamp(15px, 2.8vmin, 22px); letter-spacing: .1em;
+  padding: 8px 28px; color: #05070a; background: #ffde5e; border: 0;
+  box-shadow: 0 0 0 2px #7a2c12, 4px 4px 0 2px #000;
+}
+button:hover { background: #fff3a6; }
+button:active { transform: translate(2px, 2px); box-shadow: 0 0 0 2px #7a2c12, 2px 2px 0 2px #000; }
+button:disabled { background: #3a4a60; color: #8a9ab0; cursor: default; box-shadow: 0 0 0 2px #22303f, 4px 4px 0 2px #000; }
+button.ghost { background: #2a3a55; color: #cfe3ff; }
+.credit { position: absolute; bottom: 6px; font-size: 12px; color: #5a6a80; }
+.credit a { color: #7fd4ff; }
+
+.overlay h2 { font-size: clamp(22px, 5vmin, 40px); color: #ffde5e; text-shadow: 2px 2px 0 #000; letter-spacing: .12em; }
+.tip { font-size: clamp(13px, 2vmin, 16px); color: #9fb4cc; }
+
+/* レベルアップカード */
+#cards { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; max-width: 92%; }
+.card {
+  pointer-events: auto; cursor: pointer;
+  width: clamp(150px, 26vmin, 240px); padding: 10px 12px;
+  background: #0e1626; border: 2px solid #2a3a55;
+  text-align: left; transition: transform .08s, border-color .08s;
+}
+.card:hover { border-color: #ffde5e; transform: translateY(-3px); }
+.card .no { font-size: 12px; color: #5a6a80; }
+.card .name { font-size: clamp(14px, 2.2vmin, 19px); color: #7fd4ff; margin: 2px 0 4px; }
+.card .name.weapon { color: #ffde5e; }
+.card .fxpv {
+  display: block; width: 100%; height: 56px; margin: 2px 0 6px;
+  object-fit: contain; image-rendering: pixelated;
+  background: radial-gradient(#12203a, #0b1220); border: 1px solid #1c2a44;
+}
+.card .desc { font-size: clamp(12px, 1.9vmin, 16px); color: #cfd8e8; line-height: 1.5; }
+.card .lvnow { font-size: 12px; color: #8ce08a; }
+
+#ending #endTitle { color: #ff5a50; }
+#ending.win #endTitle { color: #ffde5e; }
+#endStats { font-size: clamp(14px, 2.2vmin, 18px); line-height: 2; color: #dfe6ee; }
+#endStats b { color: #ffde5e; }
+
+/* ---- 永続強化ショップ（タイトル画面右に常設・画面遷移なし） ---- */
+#title { flex-direction: row; gap: clamp(16px, 4vmin, 44px); padding: 0 3vmin; }
+.titleMain { display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center; }
+.titleShop {
+  width: min(430px, 44%); padding: 10px 14px 12px; text-align: left;
+  background: #0a1120cc; border: 2px solid #2a3a55; box-shadow: 4px 4px 0 2px #000;
+}
+.titleShop h3 { font-size: clamp(14px, 2.2vmin, 18px); color: #ffde5e; letter-spacing: .1em; margin-bottom: 6px; }
+.titleShop .tip { margin-bottom: 8px; }
+#shopList { display: grid; gap: 6px; max-height: min(56vh, 400px); overflow-y: auto; padding-right: 4px; }
+.shopItem {
+  display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px;
+  background: #0e1626; border: 2px solid #2a3a55; padding: 6px 10px; text-align: left;
+}
+.shopItem.maxed { border-color: #3a5a34; }
+.shopItem .sname { font-size: clamp(13px, 1.9vmin, 16px); color: #7fd4ff; white-space: nowrap; }
+.shopItem .sname::after { content: " " attr(data-pips); color: #ffde5e; letter-spacing: 2px; font-size: .85em; }
+.shopItem .sdesc { font-size: clamp(11px, 1.6vmin, 14px); color: #cfd8e8; line-height: 1.3; }
+.shopItem button.sbuy { padding: 4px 12px; font-size: clamp(12px, 1.8vmin, 15px); }
+.banknum { color: #ffde5e; }

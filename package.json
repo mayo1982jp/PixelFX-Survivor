@@ -1,0 +1,10 @@
+{
+  "name": "pixelfx-survivor",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "PixelFX Survivor — Vampire Survivors-like game built with pixelfx (HTML/CSS/JS)",
+  "scripts": {
+    "start": "npx --yes serve -l 8080 ."
+  }
+}

@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PixelFX Survivor ─ pixelfx vampire-like</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="stage">
+  <canvas id="screen" width="320" height="180"></canvas>
+
+  <!-- HUD -->
+  <div id="hud" class="hidden">
+    <div id="xpwrap"><div id="xpfill"></div><div id="lvl">Lv 1</div></div>
+    <div id="clock">00:00</div>
+    <div id="killcount">0 KILLS</div>
+    <div id="coincount">0 C</div>
+    <div id="hpwrap"><div id="hpfill"></div><div id="hptext">100/100</div></div>
+    <div id="weapons"></div>
+  </div>
+  <div id="dmgflash"></div>
+
+  <!-- タイトル（右側に永続強化ショップを常設） -->
+  <div id="title" class="overlay">
+    <div class="titleMain">
+      <h1>PIXELFX<span>SURVIVOR</span></h1>
+      <p class="sub">pixelfx で作るヴァンサバライク サバイバル</p>
+      <div class="keys">
+        <div><b>WASD / 矢印キー</b> 移動（攻撃はオート）</div>
+        <div><b>P / Esc</b> ポーズ</div>
+        <div><b>1 / 2 / 3</b> レベルアップ選択</div>
+      </div>
+      <p class="goal">夜が明ける 5 分間、群がる魔物から生き延びろ。</p>
+      <button id="startBtn">ゲームスタート</button>
+    </div>
+    <div class="titleShop">
+      <h3>永続強化ショップ</h3>
+      <p class="tip">保有コイン <b id="shopBank" class="banknum">0</b> C　─　コインは敵を倒すとドロップし、終了時に貯金されます</p>
+      <div id="shopList"></div>
+    </div>
+    <div class="credit">effects by <a href="https://patch-gg.github.io/pixelfx/" target="_blank" rel="noopener">pixelfx</a> (MIT)</div>
+  </div>
+
+  <!-- レベルアップ -->
+  <div id="levelup" class="overlay hidden">
+    <h2>LEVEL UP!</h2>
+    <p class="tip">強化を選択（1 / 2 / 3 キーでも選べます）</p>
+    <div id="cards"></div>
+  </div>
+
+  <!-- ポーズ -->
+  <div id="pause" class="overlay hidden">
+    <h2>PAUSED</h2>
+    <p class="tip">P / Esc で再開</p>
+  </div>
+
+  <!-- 終了 -->
+  <div id="ending" class="overlay hidden">
+    <h2 id="endTitle">YOU DIED</h2>
+    <div id="endStats"></div>
+    <button id="retryBtn">リトライ</button>
+    <button id="toTitleBtn" class="ghost">タイトルにもどる（ショップで購入）</button>
+  </div>
+</div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>
