@@ -1,7 +1,7 @@
 // エントリポイント：canvas・入力・状態機械・rAF ループの接続。
 // 世界（canvas 内）はすべて pixelfx のフレームバッファ経由で描画される。
-import { createGame } from "./game.js";
-import { render, updateAmbient, resetAmbient } from "./render.js";
+import { createGame, setViewport } from "./game.js";
+import { render, updateAmbient, resetAmbient, resetFrame } from "./render.js";
 import { makeChoices, applyChoice } from "./weapons.js";
 import { FX } from "./fx.js";
 import { initAudio, sfx } from "./sfx.js";
@@ -156,6 +156,24 @@ document.getElementById("toTitleBtn").onclick = backToTitle;
 document.getElementById("pauseBtn").onclick = () => togglePause();
 document.getElementById("resumeBtn").onclick = () => togglePause();
 
+// ---- ビューポート：キャンバスを画面全面に広げ、アスペクトに合わせた解像度にする ------
+const SHORT = 180; // 基準となる短辺の論理ピクセル数（デスクトップ 320×180 と同スケール）
+function resize() {
+  const w = canvas.clientWidth || window.innerWidth;
+  const h = canvas.clientHeight || window.innerHeight;
+  const aspect = w / h;
+  let vw, vh;
+  if (aspect >= 1) { vh = SHORT; vw = Math.round(SHORT * aspect); } // 横長: 高さを基準
+  else { vw = SHORT; vh = Math.round(SHORT / aspect); }            // 縦長: 幅を基準
+  setViewport(vw, vh);
+  canvas.width = vw; canvas.height = vh; // 内部解像度＝論理サイズ（CSS で画面全面に拡大）
+  ctx.imageSmoothingEnabled = false;
+  resetFrame();
+}
+addEventListener("resize", resize);
+addEventListener("orientationchange", resize);
+if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
+
 // ---- メインループ -------------------------------------------------------------
 let last = performance.now(), acc = 0;
 const STEP = 1 / 60;
@@ -184,6 +202,7 @@ function loop(now) {
 }
 
 // タイトル背景用に一度だけリセット（プレイヤーが草原に立っている絵を作る）
+resize(); // 画面サイズから論理解像度を確定（この後の reset / render に反映）
 game.reset();
 ui.renderShop(buyMeta); // タイトル常設のショップを初期描画
 requestAnimationFrame(loop);

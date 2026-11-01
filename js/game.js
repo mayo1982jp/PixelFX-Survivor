@@ -6,9 +6,16 @@ import { sfx } from "./sfx.js";
 import { WEAPONS } from "./weapons.js";
 import { getLevel, addBank } from "./meta.js";
 
-export const VW = 320, VH = 180; // 論理解像度（フレームサイズ）
-const SPAWN_R = 200;             // プレイヤーからの湧き半径
+export let VW = 320, VH = 180; // 論理解像度（画面アスペクトに合わせて動的に再計算）
+let SPAWN_R = 224;             // 湧きリング半径（画面の対角半分＋余裕。setViewport で更新）
 const MAX_ENEMIES = 170;
+
+/** 画面サイズに合わせた論理解像度を設定。短辺を約180px基準に保ちつつアスペクトに追従し、黒帯なく全面表示する。 */
+export function setViewport(w, h) {
+  VW = Math.max(160, Math.min(640, Math.round(w)));
+  VH = Math.max(160, Math.min(640, Math.round(h)));
+  SPAWN_R = Math.hypot(VW, VH) / 2 + 24; // 画面の角の外側に湧くように
+}
 
 // 敵の種類。mod は pixelfx の critter エフェクト（ループする生き物アニメ）
 // at はすべて 240秒（4分）以内 = 4分で全種が出現する仕様。skull は末尾固定（ボス湧きが TYPES[last] を参照）。
@@ -29,7 +36,6 @@ const TYPES = [
 
 export function createGame() {
   const g = {
-    vw: VW, vh: VH,
     time: 0, kills: 0, over: false, won: false,
     level: 1, xp: 0, xpNeed: 9, pendingLevels: 0,
     coins: 0, coinMult: 1,
@@ -194,10 +200,16 @@ export function createGame() {
     for (const t of pool) { r -= t.w; if (r <= 0) return t; }
     return pool[0];
   }
-  const ringPoint = () => {
-    const a = Math.random() * Math.PI * 2;
-    return [g.player.x + Math.cos(a) * SPAWN_R, g.player.y + Math.sin(a) * SPAWN_R * 0.8];
+  // 指定角度方向の「画面の少し外側」座標。長方形ビューの辺に沿うのでアスペクト非依存で必ず画面外に出る。
+  const ringAt = (a) => {
+    const cx = Math.cos(a), sy = Math.sin(a);
+    const hw = VW / 2, hh = VH / 2;
+    const tx = hw / Math.max(1e-3, Math.abs(cx));
+    const ty = hh / Math.max(1e-3, Math.abs(sy));
+    const t = Math.min(tx, ty) * 1.12 + 18;
+    return [g.player.x + cx * t, g.player.y + sy * t];
   };
+  const ringPoint = () => ringAt(Math.random() * Math.PI * 2);
 
   // ---- 本体アップデート ----------------------------------------------------------
   g.update = function update(dt, input) {
@@ -237,7 +249,8 @@ export function createGame() {
       const n = 10 + Math.floor(g.time / 22); // 終点で約23湧（元10分版と同等）
       for (let i = 0; i < n && g.enemies.length < MAX_ENEMIES; i++) {
         const aa = a + (Math.random() - 0.5) * 0.8;
-        spawnEnemy(pickType(), p.x + Math.cos(aa) * SPAWN_R, p.y + Math.sin(aa) * SPAWN_R * 0.8, false);
+        const [sx, sy] = ringAt(aa);
+        spawnEnemy(pickType(), sx, sy, false);
       }
       g.addShake(2);
     }

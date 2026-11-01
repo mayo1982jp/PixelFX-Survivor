@@ -54,6 +54,9 @@ function drawGround(frame) {
 let frame = null, img = null, hero = null;
 let flies = { f: null, ax: 0, ay: 0 };
 
+/** ビューポート変更時にフレーム／ImageData を再確保させ下次 render() で作り直す */
+export function resetFrame() { frame = null; img = null; }
+
 export function render(g, ctx) {
   if (!frame) { frame = createFrame(VW, VH, 0, 0); img = new ImageData(VW, VH); hero = stockActor(1); }
 
