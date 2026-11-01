@@ -130,3 +130,49 @@
 | regen | 回生 | HP自然回復 +0.3/秒 | `35 + 45lv` |
 
 ※ lv = 購入時点の現在のレベル（0始まり）。貯金は `localStorage`（キー `pixelSurvivor.meta.v1`）に永続化。
+
+---
+
+## 3. ファイル構成
+
+| パス | 役割 |
+|---|---|
+| `index.html` | エントリーポイント。`css/style.css` と `js/main.js`（type=module）のみを読み込む |
+| `css/style.css` | HUD・オーバーレイ・タイトル/ショップ UI のスタイル |
+| `js/main.js` | ゲーム生成と描画・環境演出のループ制御（`preview.js` を import） |
+| `js/preview.js` | レベルアップカード選択肢のプレビュー描画 |
+| `js/game.js` | プレイヤー・敵・湧き・衝突・経済などのロジック |
+| `js/weapons.js` | 武器（Lv上限8）とパッシブ（Lv上限4）の定義 |
+| `js/meta.js` | 永続ショップ（Lv上限5）と `localStorage` 保存 |
+| `js/fx.js` / `js/render.js` | pixelfx エフェクトのレジストリと描画 |
+| `js/sfx.js` | WebAudio 由来の効果音 |
+| `js/witch.js` | ボス sprite（ドット絵データとパレット） |
+| `vendor/pixelfx/` | pixelfx ライブラリ本体（MIT）。`core/index.js` と各 `fx/**` を import |
+| `.github/workflows/pages.yml` | GitHub Pages への自動公開ワークフロー |
+
+`index.html` は直接 `css/style.css` と `js/main.js` だけを参照し、そこから ES module 経由で他の `js/*` と `vendor/pixelfx/*` に展開される。ビルド工程は持たない完全静的サイト。
+
+---
+
+## 4. 実行・公開
+
+### ローカル実行
+静的ファイルのみで構成されるため、任意のローカル HTTP サーバで開ける（`file://` 直開きは ES module の CORS 制限で動かないことがあるため、サーバ経由を推奨）。
+
+```bash
+npm start          # npx serve -l 8080 . を起動 → http://localhost:8080
+```
+
+### GitHub Pages での自動公開
+`main` ブランチへの push をトリガーに、`.github/workflows/pages.yml` が次を順に実行して公開する。
+
+1. `actions/checkout` — リポジトリを取得
+2. `actions/configure-pages` — Pages のメタデータを解決
+3. `actions/upload-pages-artifact` — 静的ファイル一式（`path: '.'`）を成果物化
+4. `actions/deploy-pages` — Pages にデプロイ
+
+ビルド工程は無く、リポジトリ直下の静的ファイルをそのまま配信する。`.nojekyll` により Jekyll 処理を無効化している。
+
+**初回の一度だけ**、リポジトリ設定で **Settings → Pages → Build and deployment → Source** を「GitHub Actions」に切り替える必要がある（デフォルトの `GITHUB_TOKEN` では Pages サイトの作成＝管理者操作ができないため）。設定後は push のたびに自動デプロイされる。
+
+公開 URL: **https://mayo1982jp.github.io/PixelFX-Survivor/**
