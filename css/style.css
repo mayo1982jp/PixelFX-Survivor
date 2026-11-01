@@ -5,24 +5,28 @@ html, body {
   width: 100%; height: 100%;
   background: #05070a;
   overflow: hidden;
+  overscroll-behavior: none;
   font-family: "MS Gothic", "Osaka-Mono", monospace;
   color: #dfe6ee;
   user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
 }
 
 /* ---- 画面 ---- */
 #stage {
-  position: relative;
-  width: min(100vw, calc(100vh * 16 / 9));
-  height: min(100vh, calc(100vw * 9 / 16));
-  margin: auto;
-  top: 50%; transform: translateY(-50%);
+  position: fixed; inset: 0;
+  width: 100vw; height: 100vh;
 }
 #screen {
-  width: 100%; height: 100%;
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
   display: block;
   image-rendering: pixelated;
   background: #0a0f14;
+  touch-action: none;
 }
 
 /* ---- HUD ---- */
@@ -138,3 +142,65 @@ button.ghost { background: #2a3a55; color: #cfe3ff; }
 .shopItem .sdesc { font-size: clamp(11px, 1.6vmin, 14px); color: #cfd8e8; line-height: 1.3; }
 .shopItem button.sbuy { padding: 4px 12px; font-size: clamp(12px, 1.8vmin, 15px); }
 .banknum { color: #ffde5e; }
+
+/* ============================================================
+   モバイル / タッチ UI 対応
+   ============================================================ */
+
+/* オーバーレイはノッチを避け、内容がはみ出したら縦スクロール */
+.overlay {
+  padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right))
+           max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  overflow: auto; -webkit-overflow-scrolling: touch;
+}
+
+/* タッチ用フローティングスティック（既定は非表示、.touch でのみ表示） */
+#stickLayer { position: fixed; inset: 0; z-index: 8; pointer-events: none; }
+#stickBase {
+  position: absolute; left: 0; top: 0; width: 118px; height: 118px; margin: -59px 0 0 -59px;
+  border-radius: 50%; border: 2px solid #ffffff2e; background: #ffffff12;
+  opacity: 0; transition: opacity .12s;
+}
+#stickKnob {
+  position: absolute; left: 50%; top: 50%; width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border-radius: 50%; background: #ffde5ecc; border: 2px solid #ffffff88;
+  box-shadow: 0 2px 6px #0008;
+}
+#stickLayer.on #stickBase { opacity: 1; }
+
+/* HUD 内のポーズボタン（タッチ端末のみ表示） */
+#pauseBtn {
+  position: absolute; top: calc(4px + env(safe-area-inset-top)); right: calc(6px + env(safe-area-inset-right));
+  width: 42px; height: 42px; padding: 0; border-radius: 8px;
+  font-size: 15px; line-height: 1; letter-spacing: -1px;
+  background: #101a2acc; color: #cfe3ff; box-shadow: 0 0 0 1px #33445f;
+  display: none;
+}
+#pauseBtn:active { background: #22344f; }
+
+/* タッチ端末でのみスティックとポーズボタンを見せる */
+body.touch #pauseBtn { display: block; }
+/* ポーズボタンと HUD（時計・XPバー）の重なりを回避（全向） */
+body.touch #clock { right: 54px; }
+body.touch #xpwrap { left: 5%; right: 58px; width: auto; }
+
+/* タップしやすさ: 主要ボタンは最小高さを確保 */
+body.touch button { min-height: 44px; }
+body.touch .card { padding: 12px 14px; }
+body.touch .shopItem { padding: 8px 12px; }
+body.touch .shopItem button.sbuy { min-height: 40px; padding: 6px 16px; }
+
+/* 縦持ち: タイトルとショップを縦積みに（スティック操作領域を確保） */
+@media (orientation: portrait) {
+  #title { flex-direction: column; align-items: stretch; gap: 12px; padding: max(14px, env(safe-area-inset-top)) 4vmin max(14px, env(safe-area-inset-bottom)); justify-content: flex-start; }
+  .titleMain { flex: 0 0 auto; }
+  .titleShop { width: 100%; }
+  #shopList { max-height: none; }
+  #clock { top: calc(6px + env(safe-area-inset-top)); right: 56px; font-size: 16px; }
+  #xpwrap { top: calc(6px + env(safe-area-inset-top)); }
+  #killcount { top: 26px; }
+  #coincount { top: 46px; }
+  #hpwrap { bottom: calc(12px + env(safe-area-inset-bottom)); width: 42vw; max-width: 170px; }
+  #weapons { bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 46vw; flex-wrap: wrap; justify-content: flex-end; }
+}
+

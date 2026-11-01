@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>PixelFX Survivor ─ pixelfx vampire-like</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
@@ -18,6 +18,7 @@
     <div id="coincount">0 C</div>
     <div id="hpwrap"><div id="hpfill"></div><div id="hptext">100/100</div></div>
     <div id="weapons"></div>
+    <button id="pauseBtn" type="button" aria-label="ポーズ">▐▐</button>
   </div>
   <div id="dmgflash"></div>
 
@@ -52,7 +53,8 @@
   <!-- ポーズ -->
   <div id="pause" class="overlay hidden">
     <h2>PAUSED</h2>
-    <p class="tip">P / Esc で再開</p>
+    <p class="tip">P / Esc、または下のボタンで再開</p>
+    <button id="resumeBtn">再開する</button>
   </div>
 
   <!-- 終了 -->
@@ -62,6 +64,10 @@
     <button id="retryBtn">リトライ</button>
     <button id="toTitleBtn" class="ghost">タイトルにもどる（ショップで購入）</button>
   </div>
+</div>
+<!-- タッチ用フローティングスティック（移動のみ。攻撃はオート） -->
+<div id="stickLayer" aria-hidden="true">
+  <div id="stickBase"><div id="stickKnob"></div></div>
 </div>
 <script type="module" src="js/main.js"></script>
 </body>

@@ -34,14 +34,67 @@ addEventListener("keydown", (ev) => {
   if (state === "end" && (ev.code === "Enter" || ev.code === "Space")) start();
 });
 addEventListener("keyup", (ev) => { if (KEYMAP[ev.code]) keys.delete(ev.code); });
-addEventListener("blur", () => keys.clear());
+addEventListener("blur", () => { keys.clear(); clearStick(); });
 
 function readInput() {
-  input.left = keys.has("ArrowLeft") || keys.has("KeyA");
-  input.right = keys.has("ArrowRight") || keys.has("KeyD");
-  input.up = keys.has("ArrowUp") || keys.has("KeyW");
-  input.down = keys.has("ArrowDown") || keys.has("KeyS");
+  input.left = keys.has("ArrowLeft") || keys.has("KeyA") || stickDir.left;
+  input.right = keys.has("ArrowRight") || keys.has("KeyD") || stickDir.right;
+  input.up = keys.has("ArrowUp") || keys.has("KeyW") || stickDir.up;
+  input.down = keys.has("ArrowDown") || keys.has("KeyS") || stickDir.down;
 }
+
+// ---- タッチ：フローティング仮想スティック（移動のみ／攻撃はオート） ---------------
+const stickLayer = document.getElementById("stickLayer");
+const stickBase = document.getElementById("stickBase");
+const stickKnob = document.getElementById("stickKnob");
+const stickDir = { left: false, right: false, up: false, down: false };
+const stick = { id: null, ox: 0, oy: 0 };
+const STICK_MAX = 52;   // つまみ可動半径(px)
+const STICK_DEAD = 16;  // デッドゾーン(px)
+
+// 初期判定：coarse pointer / touch API のある端末だけスティックを有効化。
+// (ハイブリッド機でも、実際のタッチを検知した瞬間に .touch を付与して表示する)
+if (matchMedia("(pointer: coarse)").matches || ("ontouchstart" in window)) {
+  document.body.classList.add("touch");
+}
+
+function zeroStick() { stickDir.left = stickDir.right = stickDir.up = stickDir.down = false; }
+function setKnob(dx, dy) { stickKnob.style.transform = `translate(${dx}px, ${dy}px)`; }
+function clearStick() { zeroStick(); stick.id = null; stickLayer.classList.remove("on"); setKnob(0, 0); }
+
+function stickDown(ev) {
+  if (state !== "playing") return;              // メニュー/カード表示中は移動を受け付けない
+  if (ev.pointerType === "mouse") return;        // デスクトップのマウスは無視（キーボードで操作）
+  if (ev.target && ev.target.closest && ev.target.closest("#pauseBtn")) return; // ポーズボタンは優先
+  if (stick.id !== null) return;                 // 既に1本操作中
+  document.body.classList.add("touch");
+  stick.id = ev.pointerId; stick.ox = ev.clientX; stick.oy = ev.clientY;
+  stickBase.style.left = ev.clientX + "px";
+  stickBase.style.top = ev.clientY + "px";
+  setKnob(0, 0);
+  stickLayer.classList.add("on");
+  zeroStick();
+  ev.preventDefault();
+}
+function stickMove(ev) {
+  if (ev.pointerId !== stick.id) return;
+  const dx = ev.clientX - stick.ox, dy = ev.clientY - stick.oy;
+  const len = Math.hypot(dx, dy);
+  if (len > 0) { const k = Math.min(STICK_MAX, len) / len; setKnob(dx * k, dy * k); }
+  else setKnob(0, 0);
+  if (len > STICK_DEAD) {
+    const nx = dx / len, ny = dy / len;         // 正規化ベクトルを 8 方向に変換（ゲーム側で再正規化されるため十分）
+    stickDir.left = nx < -0.38; stickDir.right = nx > 0.38;
+    stickDir.up = ny < -0.38; stickDir.down = ny > 0.38;
+  } else zeroStick();
+  ev.preventDefault();
+}
+function stickUp(ev) { if (ev.pointerId === stick.id) clearStick(); }
+
+addEventListener("pointerdown", stickDown, { passive: false });
+addEventListener("pointermove", stickMove, { passive: false });
+addEventListener("pointerup", stickUp);
+addEventListener("pointercancel", stickUp);
 
 // ---- ゲームイベント配線 ------------------------------------------------------
 game.onHurt = () => ui.flashDamage();
@@ -52,9 +105,10 @@ game.onLevelUp = () => {
   game.fxTop.spawn(FX.confetti, game.player.x, game.player.y - 20, { seed: game.rseed() });
   openCards();
 };
-game.onEnd = (win) => { state = "end"; ui.showEnd(win, game); };
+game.onEnd = (win) => { clearStick(); state = "end"; ui.showEnd(win, game); };
 
 function openCards() {
+  clearStick(); // レベルアップ中は移動停止
   choices = makeChoices(game);
   const entries = ui.showCards(choices, choose);
   preview.start(entries); // カード内で見本エフェクトをループ再生
@@ -70,7 +124,7 @@ function choose(i) {
 }
 
 function togglePause() {
-  if (state === "playing") { state = "pause"; ui.showPause(true); }
+  if (state === "playing") { clearStick(); state = "pause"; ui.showPause(true); }
   else if (state === "pause") { ui.showPause(false); state = "playing"; }
 }
 
@@ -88,6 +142,7 @@ function backToTitle() {
 
 function start() {
   initAudio();
+  clearStick();
   game.reset(); // meta.js の購入レベルが初期ステータスへ反映される
   resetAmbient();
   preview.stop();
@@ -98,6 +153,8 @@ function start() {
 document.getElementById("startBtn").onclick = start;
 document.getElementById("retryBtn").onclick = start;
 document.getElementById("toTitleBtn").onclick = backToTitle;
+document.getElementById("pauseBtn").onclick = () => togglePause();
+document.getElementById("resumeBtn").onclick = () => togglePause();
 
 // ---- メインループ -------------------------------------------------------------
 let last = performance.now(), acc = 0;
