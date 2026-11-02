@@ -145,8 +145,10 @@
 | `js/weapons.js` | 武器（Lv上限8）とパッシブ（Lv上限4）の定義 |
 | `js/meta.js` | 永続ショップ（Lv上限5）と `localStorage` 保存 |
 | `js/fx.js` / `js/render.js` | pixelfx エフェクトのレジストリと描画 |
-| `js/sfx.js` | WebAudio 由来の効果音 |
+| `js/sfx.js` | サンプル再生 + WebAudio シンセフォールバックの効果音 |
 | `js/witch.js` | ボス sprite（ドット絵データとパレット） |
+| `assets/sfx/` | earshot bank でレンダリングした効果音 WAV（48kHz ステレオ 16bit）と `manifest.json` |
+| `tools/render_sfx.py` | earshot のサウンドバンクから `assets/sfx/` を再生成するスクリプト（`python tools/render_sfx.py`） |
 | `vendor/pixelfx/` | pixelfx ライブラリ本体（MIT）。`core/index.js` と各 `fx/**` を import |
 | `.github/workflows/pages.yml` | GitHub Pages への自動公開ワークフロー |
 

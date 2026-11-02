@@ -1,0 +1,171 @@
+{
+ "sr": 48000,
+ "sounds": [
+  {
+   "name": "shot",
+   "takes": 3,
+   "gain": 0.2,
+   "jitter": true,
+   "files": [
+    "shot_1.wav",
+    "shot_2.wav",
+    "shot_3.wav"
+   ]
+  },
+  {
+   "name": "hit",
+   "takes": 3,
+   "gain": 0.18,
+   "jitter": true,
+   "files": [
+    "hit_1.wav",
+    "hit_2.wav",
+    "hit_3.wav"
+   ]
+  },
+  {
+   "name": "kill",
+   "takes": 2,
+   "gain": 0.3,
+   "jitter": true,
+   "files": [
+    "kill_1.wav",
+    "kill_2.wav"
+   ]
+  },
+  {
+   "name": "elite",
+   "takes": 2,
+   "gain": 0.48,
+   "jitter": true,
+   "files": [
+    "elite_1.wav",
+    "elite_2.wav"
+   ]
+  },
+  {
+   "name": "hurt",
+   "takes": 2,
+   "gain": 0.4,
+   "jitter": true,
+   "files": [
+    "hurt_1.wav",
+    "hurt_2.wav"
+   ]
+  },
+  {
+   "name": "pickup",
+   "takes": 2,
+   "gain": 0.28,
+   "jitter": false,
+   "files": [
+    "pickup_1.wav",
+    "pickup_2.wav"
+   ]
+  },
+  {
+   "name": "coin",
+   "takes": 1,
+   "gain": 0.22,
+   "jitter": false,
+   "files": [
+    "coin_1.wav"
+   ]
+  },
+  {
+   "name": "heart",
+   "takes": 1,
+   "gain": 0.3,
+   "jitter": false,
+   "files": [
+    "heart_1.wav"
+   ]
+  },
+  {
+   "name": "zap",
+   "takes": 3,
+   "gain": 0.32,
+   "jitter": true,
+   "files": [
+    "zap_1.wav",
+    "zap_2.wav",
+    "zap_3.wav"
+   ]
+  },
+  {
+   "name": "thunder",
+   "takes": 2,
+   "gain": 0.55,
+   "jitter": true,
+   "files": [
+    "thunder_1.wav",
+    "thunder_2.wav"
+   ]
+  },
+  {
+   "name": "smite",
+   "takes": 2,
+   "gain": 0.44,
+   "jitter": true,
+   "files": [
+    "smite_1.wav",
+    "smite_2.wav"
+   ]
+  },
+  {
+   "name": "nova",
+   "takes": 2,
+   "gain": 0.28,
+   "jitter": true,
+   "files": [
+    "nova_1.wav",
+    "nova_2.wav"
+   ]
+  },
+  {
+   "name": "star",
+   "takes": 1,
+   "gain": 0.3,
+   "jitter": false,
+   "files": [
+    "star_1.wav"
+   ]
+  },
+  {
+   "name": "level",
+   "takes": 1,
+   "gain": 0.38,
+   "jitter": false,
+   "files": [
+    "level_1.wav"
+   ]
+  },
+  {
+   "name": "select",
+   "takes": 1,
+   "gain": 0.24,
+   "jitter": false,
+   "files": [
+    "select_1.wav"
+   ]
+  },
+  {
+   "name": "over",
+   "takes": 1,
+   "gain": 0.42,
+   "jitter": false,
+   "files": [
+    "over_1.wav"
+   ]
+  },
+  {
+   "name": "win",
+   "takes": 1,
+   "gain": 0.45,
+   "jitter": false,
+   "files": [
+    "win_1.wav"
+   ]
+  }
+ ]
+}

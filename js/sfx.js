@@ -1,14 +1,56 @@
-// 軽量WebAudioシンセ。pixelfxは映像効果のみなので、効果音はこの小さな合成音で補う。
-let ctx = null, master = null;
+// 豪華な効果音: earshot のサウンドバンクから tools/render_sfx.py で生成した
+// サンプル（assets/sfx/*.wav）を WebAudio で再生する。
+// サンプルが見つからない場合（未生成・オフライン）は従来の軽量シンセにフォールバックする。
+let ctx = null, master = null, loading = false;
+const banks = new Map();   // name -> { buffers: [AudioBuffer], gain, jitter }
+const active = new Map();  // name -> 再生中のボイス数
+const MAX_VOICES = { shot: 5, hit: 6, kill: 4, zap: 4, def: 4 };
+const DIR = "assets/sfx/";
 
 export function initAudio() {
   if (ctx) return;
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   master = ctx.createGain();
-  master.gain.value = 0.22;
+  master.gain.value = 0.45;
   master.connect(ctx.destination);
+  if (!loading) { loading = true; loadSamples(); }
 }
 
+async function loadSamples() {
+  try {
+    const res = await fetch(DIR + "manifest.json");
+    if (!res.ok) return;
+    const { sounds } = await res.json();
+    await Promise.all(sounds.map(async (s) => {
+      const buffers = [];
+      for (const f of s.files) {
+        try {
+          const r = await fetch(DIR + f);
+          if (r.ok) buffers.push(await ctx.decodeAudioData(await r.arrayBuffer()));
+        } catch (_) { /* 欠損ファイルはそのテールだけ捨ててシンセへ寄せる */ }
+      }
+      if (buffers.length) banks.set(s.name, { buffers, gain: s.gain, jitter: s.jitter });
+    }));
+  } catch (_) { /* fetch 不可の環境では丸ごとシンセ運用のまま */ }
+}
+
+function play(name, vol, fallback) {
+  if (!ctx) return;
+  const b = banks.get(name);
+  if (!b) { if (fallback) fallback(); return; }
+  if ((active.get(name) || 0) >= (MAX_VOICES[name] || MAX_VOICES.def)) return;
+  const src = ctx.createBufferSource();
+  src.buffer = b.buffers[(Math.random() * b.buffers.length) | 0];
+  if (b.jitter) src.playbackRate.value = 0.94 + Math.random() * 0.12; // 連打の機械感を消す
+  const g = ctx.createGain();
+  g.gain.value = b.gain * vol;
+  src.connect(g); g.connect(master);
+  active.set(name, (active.get(name) || 0) + 1);
+  src.onended = () => active.set(name, (active.get(name) || 1) - 1);
+  src.start();
+}
+
+// ---- フォールバック用の軽量シンセ（サンプル生成前のリポジトリでも音が鳴る） ----
 function tone({ f = 440, f2 = 0, type = "square", dur = 0.08, vol = 0.5, delay = 0 }) {
   if (!ctx) return;
   const t0 = ctx.currentTime + delay;
@@ -36,7 +78,7 @@ function noise({ dur = 0.2, vol = 0.5, delay = 0, lp = 1200 }) {
   src.start(t0);
 }
 
-export const sfx = {
+const synth = {
   shot() { tone({ f: 680, f2: 240, type: "square", dur: 0.06, vol: 0.16 }); },
   hit() { tone({ f: 220, f2: 120, type: "triangle", dur: 0.05, vol: 0.2 }); },
   kill() { noise({ dur: 0.12, vol: 0.3, lp: 900 }); tone({ f: 160, f2: 60, type: "sawtooth", dur: 0.12, vol: 0.18 }); },
@@ -55,3 +97,10 @@ export const sfx = {
   over() { [392, 330, 262, 196].forEach((f, i) => tone({ f, type: "triangle", dur: 0.3, vol: 0.3, delay: i * 0.24 })); },
   win() { [523, 523, 523, 659, 784, 1047].forEach((f, i) => tone({ f, type: "square", dur: 0.16, vol: 0.25, delay: i * 0.14 })); },
 };
+
+// ---- 公開 API（呼び出し側は以前と同一。サンプルがあれば豪華な再生音に自動切替） ----
+export const sfx = Object.fromEntries(
+  Object.entries(synth).map(([name, fallback]) => [
+    name, (vol = 1) => play(name, vol, fallback),
+  ]),
+);
