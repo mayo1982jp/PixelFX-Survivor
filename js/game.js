@@ -9,6 +9,9 @@ import { getLevel, addBank } from "./meta.js";
 export let VW = 320, VH = 180; // 論理解像度（画面アスペクトに合わせて動的に再計算）
 let SPAWN_R = 224;             // 湧きリング半径（画面の対角半分＋余裕。setViewport で更新）
 const MAX_ENEMIES = 170;
+// 移動のイージング定数（大きいほど切り替わりが速い）。加速より減速を利かせてストップのキレを出す。
+const ACCEL = 10;   // スティックを倒してから最大速度まで立ち上がる
+const DECEL = 14;   // 入力を離してから止まる
 
 /** 画面サイズに合わせた論理解像度を設定。短辺を約180px基準に保ちつつアスペクトに追従し、黒帯なく全面表示する。 */
 export function setViewport(w, h) {
@@ -39,6 +42,7 @@ export function createGame() {
     time: 0, kills: 0, over: false, won: false,
     level: 1, xp: 0, xpNeed: 9, pendingLevels: 0,
     coins: 0, coinMult: 1,
+    hitStop: 0, stopCool: 0, // ヒットストップ（凍結残り時間／次の弱凍結までの間引き時間）
     player: null, enemies: [], projectiles: [], pickups: [], delayed: [],
     weapons: [], passives: {}, burnDps: 0,
     fxWorld: new FxLayer(36), fxTop: new FxLayer(64), fxText: new FxLayer(16),
@@ -51,15 +55,25 @@ export function createGame() {
   g.addShake = (a) => { g.shake = Math.min(8, Math.max(g.shake, a)); };
   g.passiveCount = () => Object.keys(g.passives).length;
 
+  /** ヒットストップ要求。main が g.update を sec 秒分止める間、世界を完全に凍らせる。
+   *  多段ヒットで連続凍結しコマ落ちしないようクールダウンで間引く（force はクリティカル・死亡・被弾など強い一撃） */
+  g.punch = (sec = 0.05, opt = {}) => {
+    const { cool = 0.22, force = false } = opt;
+    if (g.stopCool > 0 && !force) return;
+    g.hitStop = Math.max(g.hitStop, sec);
+    g.stopCool = Math.max(g.stopCool, cool);
+  };
+
   // ---- 初期化 ---------------------------------------------------------------
   g.reset = function reset() {
     g.time = 0; g.kills = 0; g.over = false; g.won = false;
     g.level = 1; g.xp = 0; g.xpNeed = 9; g.pendingLevels = 0;
+    g.hitStop = 0; g.stopCool = 0;
     // 永続強化（ショップ購入レベル）を初期ステータスへ反映
     const maxHp = 100 + 20 * getLevel("vitality");
     g.coins = 0; g.coinMult = 1 + 0.2 * getLevel("greed");
     g.player = {
-      x: 0, y: 0, hp: maxHp, maxHp, iframes: 0, flip: false, moving: false, bob: 0,
+      x: 0, y: 0, vx: 0, vy: 0, hp: maxHp, maxHp, iframes: 0, flip: false, moving: false, bob: 0,
       stats: {
         dmgMult: 1 + 0.06 * getLevel("might"),
         cdMult: 1,
@@ -134,6 +148,9 @@ export function createGame() {
     const dmg = raw * g.player.stats.dmgMult * (crit ? 2.5 : 1);
     e.hp -= dmg;
     e.flash = 0.12;
+    // ヒットストップ：通常命中は短く強めに、クリティカルは最優先で長めに。
+    // 通常はクールダウン 0.4 秒で間引く（撃ち合いの終盤で常時スローにならないため）
+    g.punch(crit ? 0.06 : 0.05, crit ? { force: true, cool: 0.3 } : { cool: 0.4 });
     if (opt.slow) e.slow = Math.max(e.slow || 0, opt.slow);
     if (opt.pushX !== undefined) { e.kx = (e.kx || 0) + opt.pushX * opt.knock; e.ky = (e.ky || 0) + opt.pushY * opt.knock; }
     g.showDamage(e.x, e.y - (e.fly ? 24 : 14), dmg, crit);
@@ -149,7 +166,7 @@ export function createGame() {
     e.dead = true;
     if (e.elite || e.type.id === "skull") {
       g.fxTop.spawn(FX.plasmaExplosion, e.x, e.y - 14, { seed: g.rseed(), light: 0.8 });
-      g.addShake(3); sfx.elite();
+      g.addShake(3); g.punch(0.08, { force: true, cool: 0.25 }); sfx.elite();
     } else {
       g.fxTop.spawn(FX.poof, e.x, e.y, { seed: g.rseed(), light: 0.5 });
       sfx.kill();
@@ -214,18 +231,27 @@ export function createGame() {
   // ---- 本体アップデート ----------------------------------------------------------
   g.update = function update(dt, input) {
     if (!g.over) g.time += dt;
+    if (g.stopCool > 0) g.stopCool -= dt;
     const p = g.player;
 
-    // --- プレイヤー移動
-    let mx = 0, my = 0;
-    if (input.left) mx -= 1; if (input.right) mx += 1;
-    if (input.up) my -= 1; if (input.down) my += 1;
+    // --- プレイヤー移動（加速・減速に Ease をかける）
+    let mx = input.ax || 0, my = input.ay || 0; // コントローラーのアナログ入力は強弱をそのまま使う
+    if (!mx && !my) {                            // 無ければキーボード / 仮想スティックの 8 方向
+      if (input.left) mx -= 1; if (input.right) mx += 1;
+      if (input.up) my -= 1; if (input.down) my += 1;
+    }
     const mag = Math.hypot(mx, my);
-    p.moving = mag > 0;
-    if (mag) { mx /= mag; my /= mag; if (mx) p.flip = mx > 0; } // 魔女は原画が左向き（杖が左）なので flip の意味を HERO と逆にする
+    if (mag > 1) { mx /= mag; my /= mag; }       // 斜め入力の速度だけを整える（弱い傾きは弱い速度）
+    if (mx) p.flip = mx > 0; // 魔女は原画が左向き（杖が左）なので flip の意味を HERO と逆にする
     const spd = 58 * p.stats.spdMult;
-    p.x += mx * spd * dt; p.y += my * spd * dt;
-    if (p.moving) p.bob += dt * 9;
+    // 指数補間なのでフレーム時間に依存せず、同じ立ち上がり・減速になる
+    const ease = 1 - Math.exp(-(mag > 0.02 ? ACCEL : DECEL) * dt);
+    p.vx += (mx * spd - p.vx) * ease;
+    p.vy += (my * spd - p.vy) * ease;
+    p.x += p.vx * dt; p.y += p.vy * dt;
+    const vel = Math.hypot(p.vx, p.vy);
+    p.moving = vel > 6;                          // 実際に動いているか（歩行 bob・見た目の判定）
+    if (p.moving) p.bob += dt * 9 * Math.min(1, vel / spd); // 遅い移動はゆっくり歩く
     p.iframes = Math.max(0, p.iframes - dt);
     if (p.stats.regen && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.stats.regen * dt);
 
@@ -292,6 +318,7 @@ export function createGame() {
         p.hp -= e.dmg;
         p.iframes = 0.7;
         g.addShake(4);
+        g.punch(0.06, { force: true, cool: 0.3 }); // 被弾も一瞬止めて手応えを出す
         sfx.hurt();
         if (g.onHurt) g.onHurt();
         if (p.hp <= 0) { p.hp = 0; g.finish(false); return; }
@@ -394,6 +421,7 @@ export function createGame() {
 
   g.finish = (win) => {
     g.over = true; g.won = win;
+    g.hitStop = 0; g.stopCool = 0; // 終了瞬間の凍結を解いて結果表示へ
     addBank(g.coins); // ラン中で拾ったコインを永続貯金へ入金
     if (win) sfx.win(); else sfx.over();
     if (g.onEnd) g.onEnd(win);

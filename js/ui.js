@@ -1,11 +1,11 @@
 // DOM による HUD・オーバーレイ管理（canvas の中身は全部 pixelfx、外側は HTML/CSS）
-import { WEAPONS } from "./weapons.js";
+import { WEAPONS, totalDps, fmtVal } from "./weapons.js";
 import { META_UPGRADES, META_ORDER, getLevel, getBank, canBuy } from "./meta.js";
 
 const $ = (id) => document.getElementById(id);
 const el = {
   hud: $("hud"), xpfill: $("xpfill"), lvl: $("lvl"), clock: $("clock"), kills: $("killcount"),
-  coins: $("coincount"), hpfill: $("hpfill"), hptext: $("hptext"), weapons: $("weapons"), dmg: $("dmgflash"),
+  coins: $("coincount"), hpfill: $("hpfill"), hptext: $("hptext"), weapons: $("weapons"), dps: $("dps"), dmg: $("dmgflash"),
   title: $("title"), levelup: $("levelup"), cards: $("cards"), pause: $("pause"),
   ending: $("ending"), endTitle: $("endTitle"), endStats: $("endStats"),
   shopList: $("shopList"), shopBank: $("shopBank"),
@@ -25,6 +25,8 @@ export function updateHUD(g) {
   el.hpfill.style.width = `${Math.max(0, (p.hp / p.maxHp) * 100)}%`;
   el.hptext.textContent = `${Math.ceil(p.hp)}/${p.maxHp}`;
   el.coins.textContent = `${g.coins} C`;
+  const dpsText = `DPS ${fmtVal(totalDps(p.stats, g.weapons))}`;
+  if (el.dps.textContent !== dpsText) el.dps.textContent = dpsText;
   const key = g.weapons.map((w) => w.id + w.lv).join();
   if (key !== lastKey) {
     lastKey = key;
@@ -56,7 +58,9 @@ export function showCards(choices, onPick) {
       `<div class="no">${i + 1}</div>` +
       `<div class="name ${c.kind === "new" || c.kind === "weapon" ? "weapon" : ""}">${c.title}</div>` +
       `<div class="desc">${c.desc}</div>` +
-      (c.now ? `<div class="lvnow">${c.now}</div>` : "");
+      (c.now ? `<div class="lvnow">${c.now}</div>` : "") +
+      (c.atk ? `<div class="stat atk">${c.atk}</div>` : "") +
+      (c.dps ? `<div class="stat dpsline">${c.dps}</div>` : "");
     // 名前の下に見本エフェクトを差し込む
     d.insertBefore(cv, d.querySelector(".desc"));
     d.onclick = () => onPick(i);
@@ -67,6 +71,11 @@ export function showCards(choices, onPick) {
   return entries;
 }
 export function hideCards() { el.levelup.classList.add("hidden"); }
+
+/** コントローラー選択用のカーソル。-1 で非表示（キーボード・タッチ運用） */
+export function setCardCursor(i) {
+  [...el.cards.children].forEach((c, k) => c.classList.toggle("sel", k === i));
+}
 
 export function pickCardByIndex(i, choices, onPick) {
   if (i < 0 || i >= choices.length) return;

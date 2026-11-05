@@ -47,7 +47,16 @@ html, body {
 }
 #hpfill { height: 100%; width: 100%; background: linear-gradient(#ff6a5a, #c9281f); transition: width .12s; }
 #hptext { position: absolute; inset: 0; text-align: center; font-size: 13px; line-height: 16px; color: #fff; text-shadow: 1px 1px 0 #000; }
-#weapons { position: absolute; bottom: 8px; right: 8px; display: flex; gap: 4px; }
+/* 右下：所持武器の合算 DPS（上）と武器レベル表示（下）を縦積みにする */
+#bottomRight {
+  position: absolute; bottom: 8px; right: 8px;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+}
+#dps {
+  font-size: 15px; color: #7fe8c8; text-shadow: 1px 1px 0 #000;
+  padding: 1px 6px; background: #101a2add; border: 1px solid #2c4a55; white-space: nowrap;
+}
+#weapons { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
 #weapons span {
   font-size: 13px; padding: 2px 6px; background: #101a2add; border: 1px solid #334;
   color: #cfe3ff; white-space: nowrap;
@@ -104,6 +113,8 @@ button.ghost { background: #2a3a55; color: #cfe3ff; }
   text-align: left; transition: transform .08s, border-color .08s;
 }
 .card:hover { border-color: #ffde5e; transform: translateY(-3px); }
+/* コントローラー（Switch Pro）のカーソル：十字キー／スティックで選んでいる枚を光る */
+.card.sel { border-color: #ffde5e; transform: translateY(-3px); box-shadow: 0 0 0 2px #ffde5e55, 4px 4px 0 2px #000; }
 .card .no { font-size: 12px; color: #5a6a80; }
 .card .name { font-size: clamp(14px, 2.2vmin, 19px); color: #7fd4ff; margin: 2px 0 4px; }
 .card .name.weapon { color: #ffde5e; }
@@ -114,6 +125,9 @@ button.ghost { background: #2a3a55; color: #cfe3ff; }
 }
 .card .desc { font-size: clamp(12px, 1.9vmin, 16px); color: #cfd8e8; line-height: 1.5; }
 .card .lvnow { font-size: 12px; color: #8ce08a; }
+.card .stat { font-size: clamp(12px, 1.9vmin, 15px); margin-top: 3px; letter-spacing: .02em; }
+.card .stat.atk { color: #ffb36a; }
+.card .stat.dpsline { color: #7fe8c8; }
 
 #ending #endTitle { color: #ff5a50; }
 #ending.win #endTitle { color: #ffde5e; }
@@ -199,6 +213,7 @@ body.touch .shopItem button.sbuy { min-height: 40px; padding: 6px 16px; }
   #killcount { top: 26px; }
   #coincount { top: 46px; }
   #hpwrap { bottom: calc(12px + env(safe-area-inset-bottom)); width: 42vw; max-width: 170px; }
-  #weapons { bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 46vw; flex-wrap: wrap; justify-content: flex-end; }
+  #bottomRight { bottom: calc(12px + env(safe-area-inset-bottom)); max-width: 46vw; }
+  #dps { font-size: 13px; }
 }
 
