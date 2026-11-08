@@ -8,6 +8,7 @@ import { initAudio, sfx } from "./sfx.js";
 import * as meta from "./meta.js";
 import * as preview from "./preview.js";
 import * as ui from "./ui.js";
+import { initDebug } from "./debug.js";
 
 const canvas = document.getElementById("screen");
 const ctx = canvas.getContext("2d");
@@ -15,6 +16,7 @@ ctx.imageSmoothingEnabled = false;
 
 const game = createGame();
 window.game = game; // デバッグ用フック（コンソールから状態を覗ける）
+initDebug(game); // レベルデザイン調整パネル（F1 / T でオンオフ）
 let state = "title"; // title | playing | levelup | pause | end
 let choices = [];
 
@@ -27,6 +29,11 @@ const KEYMAP = {
 };
 addEventListener("keydown", (ev) => {
   if (ev.repeat) return;
+  // パネル内のスライダー操作中はゲーム操作を受け付けない（矢印キーで値調整）
+  const inDebug = !!(ev.target && ev.target.closest && ev.target.closest("#debugPanel"));
+  // F1 / T は debug.js 側で処理する（ここでは二重発火を避ける）
+  if (ev.code === "F1" || ev.code === "KeyT") return;
+  if (inDebug) return;
   if (KEYMAP[ev.code]) { keys.add(ev.code); ev.preventDefault(); }
   if (ev.code === "KeyP" || ev.code === "Escape") togglePause();
   if (state === "levelup" && ["Digit1", "Digit2", "Digit3"].includes(ev.code)) choose(parseInt(ev.code.slice(-1)) - 1);
@@ -69,6 +76,7 @@ function stickDown(ev) {
   if (state !== "playing") return;              // メニュー/カード表示中は移動を受け付けない
   if (ev.pointerType === "mouse") return;        // デスクトップのマウスは無視（キーボードで操作）
   if (ev.target && ev.target.closest && ev.target.closest("#pauseBtn")) return; // ポーズボタンは優先
+  if (ev.target && ev.target.closest && ev.target.closest("#debugPanel, #debugToggle")) return; // 調整パネル操作を優先
   if (stick.id !== null) return;                 // 既に1本操作中
   document.body.classList.add("touch");
   stick.id = ev.pointerId; stick.ox = ev.clientX; stick.oy = ev.clientY;

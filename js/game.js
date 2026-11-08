@@ -8,10 +8,76 @@ import { getLevel, addBank } from "./meta.js";
 
 export let VW = 320, VH = 180; // 論理解像度（画面アスペクトに合わせて動的に再計算）
 let SPAWN_R = 224;             // 湧きリング半径（画面の対角半分＋余裕。setViewport で更新）
-const MAX_ENEMIES = 170;
-// 移動のイージング定数（大きいほど切り替わりが速い）。加速より減速を利かせてストップのキレを出す。
-const ACCEL = 10;   // スティックを倒してから最大速度まで立ち上がる
-const DECEL = 14;   // 入力を離してから止まる
+
+// ---- レベルデザイン調整パラメーター（デバッグパネルからリアルタイム変更可） ----
+// デフォルト値はこれまでのハードコードと同一。変更は localStorage に保存されリロード後も保持される。
+export const DEFAULT_TUNE = Object.freeze({
+  winTime: 300,
+  maxEnemies: 170,
+  spawnBase: 1.35, spawnDecay: 0.0032, spawnMin: 0.22,
+  swarmFirst: 20, swarmInterval: 42, swarmBase: 10, swarmDiv: 22,
+  bossFirst: 50, bossInterval: 60,
+  eliteTime: 55, eliteRate: 0.06,
+  hpDiv: 120, hpK: 0.9, dmgDiv: 250,
+  eliteHpMult: 5, eliteDmgMult: 1.4, eliteSpdMult: 0.9,
+  spdVar: 0.15,
+  enemyHpMult: 1, enemySpdMult: 1, enemyDmgMult: 1, enemyXpMult: 1,
+  playerSpeed: 58, playerMaxHp: 100, playerCrit: 0.05, playerMagnet: 26,
+  playerIframes: 0.7, accel: 10, decel: 14,
+  dmgMultExtra: 1, cdMultExtra: 1,
+  xpBase: 9, xpLinear: 5, xpQuad: 1.2,
+  heartHeal: 15, heartRate: 0.025, heartRateElite: 0.5,
+  coinMultExtra: 1,
+  hitStopScale: 1, shakeScale: 1,
+});
+export const TUNE = { ...DEFAULT_TUNE };
+
+const TUNE_KEY = "pixelSurvivor.tune.v1";
+function loadTune() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(TUNE_KEY));
+    if (raw && typeof raw === "object") {
+      for (const k of Object.keys(DEFAULT_TUNE)) {
+        const v = Number(raw[k]);
+        if (Number.isFinite(v)) TUNE[k] = v;
+      }
+    }
+  } catch { /* 保存が無い・破損時はデフォルト */ }
+}
+export function saveTune() {
+  try { localStorage.setItem(TUNE_KEY, JSON.stringify(TUNE)); } catch { /* 保存不可でも続行 */ }
+}
+export function resetTune() {
+  Object.assign(TUNE, DEFAULT_TUNE);
+  saveTune();
+}
+loadTune();
+
+/** チェンジ適用：maxHp・magnet・crit・dmg/cd・xpNeed など「現在のステータスに即反映すべき値」を同期。 */
+export function applyTuneSideEffects(g, key, prev, next) {
+  if (!g || !g.player) return;
+  const p = g.player;
+  const st = p.stats;
+  if (key === "playerMaxHp") {
+    const d = next - prev;
+    if (d !== 0) {
+      p.maxHp = Math.max(1, p.maxHp + d);
+      p.hp = d > 0 ? p.hp + d : Math.min(p.hp, p.maxHp);
+    }
+  } else if (key === "playerMagnet" && prev > 0) {
+    st.magnet *= next / prev;
+  } else if (key === "playerCrit") {
+    st.crit = Math.max(0, Math.min(1, st.crit + (next - prev)));
+  } else if (key === "dmgMultExtra" && prev > 0) {
+    st.dmgMult *= next / prev;
+  } else if (key === "cdMultExtra" && prev > 0) {
+    st.cdMult *= next / prev;
+  } else if (key === "xpBase" || key === "xpLinear" || key === "xpQuad") {
+    g.xpNeed = g.level <= 1
+      ? Math.floor(TUNE.xpBase)
+      : Math.floor(TUNE.xpBase + TUNE.xpLinear * g.level + TUNE.xpQuad * g.level * g.level);
+  }
+}
 
 /** 画面サイズに合わせた論理解像度を設定。短辺を約180px基準に保ちつつアスペクトに追従し、黒帯なく全面表示する。 */
 export function setViewport(w, h) {
@@ -47,12 +113,12 @@ export function createGame() {
     weapons: [], passives: {}, burnDps: 0,
     fxWorld: new FxLayer(36), fxTop: new FxLayer(64), fxText: new FxLayer(16),
     cam: { x: 0, y: 0 }, shake: 0,
-    seed: 1, spawnT: 0, swarmT: 20, bossT: 50,
+    seed: 1, spawnT: 0, swarmT: TUNE.swarmFirst, bossT: TUNE.bossFirst,
     onLevelUp: null, onEnd: null, onHurt: null,
   };
 
   g.rseed = () => (g.seed = (g.seed * 16807 + 11) % 2147483647) % 65521;
-  g.addShake = (a) => { g.shake = Math.min(8, Math.max(g.shake, a)); };
+  g.addShake = (a) => { a *= TUNE.shakeScale; g.shake = Math.min(8, Math.max(g.shake, a)); };
   g.passiveCount = () => Object.keys(g.passives).length;
 
   /** ヒットストップ要求。main が g.update を sec 秒分止める間、世界を完全に凍らせる。
@@ -60,26 +126,26 @@ export function createGame() {
   g.punch = (sec = 0.05, opt = {}) => {
     const { cool = 0.22, force = false } = opt;
     if (g.stopCool > 0 && !force) return;
-    g.hitStop = Math.max(g.hitStop, sec);
+    g.hitStop = Math.max(g.hitStop, sec * TUNE.hitStopScale);
     g.stopCool = Math.max(g.stopCool, cool);
   };
 
   // ---- 初期化 ---------------------------------------------------------------
   g.reset = function reset() {
     g.time = 0; g.kills = 0; g.over = false; g.won = false;
-    g.level = 1; g.xp = 0; g.xpNeed = 9; g.pendingLevels = 0;
+    g.level = 1; g.xp = 0; g.xpNeed = Math.floor(TUNE.xpBase); g.pendingLevels = 0;
     g.hitStop = 0; g.stopCool = 0;
     // 永続強化（ショップ購入レベル）を初期ステータスへ反映
-    const maxHp = 100 + 20 * getLevel("vitality");
+    const maxHp = TUNE.playerMaxHp + 20 * getLevel("vitality");
     g.coins = 0; g.coinMult = 1 + 0.2 * getLevel("greed");
     g.player = {
       x: 0, y: 0, vx: 0, vy: 0, hp: maxHp, maxHp, iframes: 0, flip: false, moving: false, bob: 0,
       stats: {
-        dmgMult: 1 + 0.06 * getLevel("might"),
-        cdMult: 1,
+        dmgMult: (1 + 0.06 * getLevel("might")) * TUNE.dmgMultExtra,
+        cdMult: TUNE.cdMultExtra,
         spdMult: 1 + 0.04 * getLevel("swift"),
-        magnet: 26 * (1 + 0.15 * getLevel("magnet")),
-        crit: 0.05,
+        magnet: TUNE.playerMagnet * (1 + 0.15 * getLevel("magnet")),
+        crit: TUNE.playerCrit,
         regen: 0.3 * getLevel("regen"),
       },
     };
@@ -88,7 +154,7 @@ export function createGame() {
     g.passives = {}; g.burnDps = 0;
     g.fxWorld.clear(); g.fxTop.clear(); g.fxText.clear();
     g.cam.x = -VW / 2; g.cam.y = -VH / 2;
-    g.shake = 0; g.spawnT = 0.8; g.swarmT = 20; g.bossT = 50; g.seed = Date.now() % 65521 || 7;
+    g.shake = 0; g.spawnT = 0.8; g.swarmT = TUNE.swarmFirst; g.bossT = TUNE.bossFirst; g.seed = Date.now() % 65521 || 7;
   };
 
   // ---- クエリ系（武器側から使う primitives） ----------------------------------
@@ -174,13 +240,13 @@ export function createGame() {
     // XPジェム（gem-spin を再配色で使っている）
     const n = e.elite ? 4 : 1;
     for (let k = 0; k < n; k++) {
-      const v = Math.max(1, Math.round(e.type.xp * (e.elite ? 5 : 1) / n));
+      const v = Math.max(1, Math.round(e.type.xp * (e.elite ? 5 : 1) * TUNE.enemyXpMult / n));
       g.spawnPickup(e.x + (Math.random() - 0.5) * 14, e.y + (Math.random() - 0.5) * 8, "xp", v);
     }
     // コイン（永続ショップ用の通貨。強欲レベルで取得量が増える）
     const cv = Math.max(1, Math.round(e.type.xp * 0.6)) * (e.elite ? 6 : 1);
-    g.spawnPickup(e.x + (Math.random() - 0.5) * 10, e.y + (Math.random() - 0.5) * 6, "coin", Math.round(cv * g.coinMult));
-    if (e.type.id !== "skull" && Math.random() < (e.elite ? 0.5 : 0.025)) g.spawnPickup(e.x, e.y, "heart", 15);
+    g.spawnPickup(e.x + (Math.random() - 0.5) * 10, e.y + (Math.random() - 0.5) * 6, "coin", Math.round(cv * g.coinMult * TUNE.coinMultExtra));
+    if (e.type.id !== "skull" && Math.random() < (e.elite ? TUNE.heartRateElite : TUNE.heartRate)) g.spawnPickup(e.x, e.y, "heart", TUNE.heartHeal);
   };
 
   // ---- 拾い物 -----------------------------------------------------------------
@@ -194,16 +260,16 @@ export function createGame() {
 
   // ---- 敵の生成 ----------------------------------------------------------------
   function spawnEnemy(type, x, y, elite) {
-    const scale = 1 + g.time / 120 * 0.9; // 300秒終点で約3.25倍（元10分版の600秒終点と同等）
+    const scale = 1 + g.time / TUNE.hpDiv * TUNE.hpK;
     const opts = { seed: g.rseed() };
     if (elite) { opts.palette = PAL.elite; opts.light = 1.5; opts.seed = g.rseed(); }
     const f = createFx(type.mod, { x, y, ...opts });
     g.enemies.push({
       type, x, y,
-      hp: type.hp * scale * (elite ? 5 : 1),
-      maxHp: type.hp * scale * (elite ? 5 : 1),
-      spd: type.spd * (0.85 + Math.random() * 0.3) * (elite ? 0.9 : 1),
-      r: type.r, dmg: type.dmg * (1 + g.time / 250) * (elite ? 1.4 : 1), // 終点2.2倍（元10分版と同等）
+      hp: type.hp * scale * (elite ? TUNE.eliteHpMult : 1) * TUNE.enemyHpMult,
+      maxHp: type.hp * scale * (elite ? TUNE.eliteHpMult : 1) * TUNE.enemyHpMult,
+      spd: type.spd * (1 - TUNE.spdVar + Math.random() * TUNE.spdVar * 2) * (elite ? TUNE.eliteSpdMult : 1) * TUNE.enemySpdMult,
+      r: type.r, dmg: type.dmg * (1 + g.time / TUNE.dmgDiv) * (elite ? TUNE.eliteDmgMult : 1) * TUNE.enemyDmgMult,
       fly: type.fly, elite: !!elite,
       f, flash: 0, slow: 0, burn: 0, burnAcc: 0, kx: 0, ky: 0, flame: null,
     });
@@ -243,9 +309,9 @@ export function createGame() {
     const mag = Math.hypot(mx, my);
     if (mag > 1) { mx /= mag; my /= mag; }       // 斜め入力の速度だけを整える（弱い傾きは弱い速度）
     if (mx) p.flip = mx > 0; // 魔女は原画が左向き（杖が左）なので flip の意味を HERO と逆にする
-    const spd = 58 * p.stats.spdMult;
+    const spd = TUNE.playerSpeed * p.stats.spdMult;
     // 指数補間なのでフレーム時間に依存せず、同じ立ち上がり・減速になる
-    const ease = 1 - Math.exp(-(mag > 0.02 ? ACCEL : DECEL) * dt);
+    const ease = 1 - Math.exp(-(mag > 0.02 ? TUNE.accel : TUNE.decel) * dt);
     p.vx += (mx * spd - p.vx) * ease;
     p.vy += (my * spd - p.vy) * ease;
     p.x += p.vx * dt; p.y += p.vy * dt;
@@ -261,19 +327,19 @@ export function createGame() {
 
     // --- 湧き
     g.spawnT -= dt;
-    const interval = Math.max(0.22, 1.35 - g.time * 0.0032); // 終点0.39秒（元10分版と同等）
-    if (g.spawnT <= 0 && g.enemies.length < MAX_ENEMIES) {
+    const interval = Math.max(TUNE.spawnMin, TUNE.spawnBase - g.time * TUNE.spawnDecay);
+    if (g.spawnT <= 0 && g.enemies.length < TUNE.maxEnemies) {
       g.spawnT = interval;
       const t = pickType();
       const [x, y] = ringPoint();
-      spawnEnemy(t, x, y, g.time > 55 && Math.random() < 0.06); // ラン経過18%時点（元110秒/600秒と同等）
+      spawnEnemy(t, x, y, g.time > TUNE.eliteTime && Math.random() < TUNE.eliteRate);
     }
     g.swarmT -= dt;
     if (g.swarmT <= 0) { // 群れラッシュ：同じ方向からまとめて湧く
-      g.swarmT = 42;
+      g.swarmT = TUNE.swarmInterval;
       const a = Math.random() * Math.PI * 2;
-      const n = 10 + Math.floor(g.time / 22); // 終点で約23湧（元10分版と同等）
-      for (let i = 0; i < n && g.enemies.length < MAX_ENEMIES; i++) {
+      const n = TUNE.swarmBase + Math.floor(g.time / TUNE.swarmDiv);
+      for (let i = 0; i < n && g.enemies.length < TUNE.maxEnemies; i++) {
         const aa = a + (Math.random() - 0.5) * 0.8;
         const [sx, sy] = ringAt(aa);
         spawnEnemy(pickType(), sx, sy, false);
@@ -282,8 +348,8 @@ export function createGame() {
     }
     g.bossT -= dt;
     if (g.bossT <= 0) { // 髑髏の精鋭
-      g.bossT = 60;
-      if (g.time > 50) {
+      g.bossT = TUNE.bossInterval;
+      if (g.time > TUNE.bossFirst) {
         const [x, y] = ringPoint();
         spawnEnemy(TYPES[TYPES.length - 1], x, y, true);
         g.addShake(3);
@@ -316,7 +382,7 @@ export function createGame() {
       // 接触ダメージ
       if (p.iframes <= 0 && d < e.r * 0.55 + 7) {
         p.hp -= e.dmg;
-        p.iframes = 0.7;
+        p.iframes = TUNE.playerIframes;
         g.addShake(4);
         g.punch(0.06, { force: true, cool: 0.3 }); // 被弾も一瞬止めて手応えを出す
         sfx.hurt();
@@ -383,8 +449,8 @@ export function createGame() {
 
     // 演出レイヤーの時間進行は updateVisuals（main が毎フレーム呼ぶ）に任せる
 
-    // --- 勝利（5分生存）
-    if (g.time >= 300 && !g.over) g.finish(true);
+    // --- 勝利（生存時間）
+    if (g.time >= TUNE.winTime && !g.over) g.finish(true);
   };
 
   g.flameCount = () => { let n = 0; for (const e of g.enemies) if (e.flame) n++; return n; };
@@ -394,7 +460,7 @@ export function createGame() {
     while (g.xp >= g.xpNeed) {
       g.xp -= g.xpNeed;
       g.level++;
-      g.xpNeed = Math.floor(9 + g.level * 5 + g.level * g.level * 1.2);
+      g.xpNeed = Math.floor(TUNE.xpBase + TUNE.xpLinear * g.level + TUNE.xpQuad * g.level * g.level);
       g.pendingLevels++;
     }
     if (g.pendingLevels > 0 && g.onLevelUp) g.onLevelUp();

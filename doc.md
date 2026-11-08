@@ -150,7 +150,24 @@
 - **レベルアップカード**（`ui.showCards` / `makeChoices`）: `攻撃力 12 → 15` と `DPS 18.5 → 23.1`。新武器は Lv1 の値のみを表示。パッシブは怪力だけ攻撃力行の倍率を書き、怪力／素早さ／幸運は選択後の合算 DPS を予測表示する（移動・HP・拾得系は DPS に影響しないため非表示）。
 - **HUD 右下**（`#dps`）: 毎フレーム合算 DPS を再計算し、テキストが変わったときだけ DOM へ書く。所持武器レベル表示（`#weapons`）の上、`#bottomRight` の縦積みに配置（縦持ちは safe-area 分だけ上に逃がす）。
 
-### 2.10 操作感（ヒットストップ・移動イージング）と入力デバイス
+### 2.10 レベルデザイン調整パネル（デバッグ / リアルタイムチューニング）
+
+画面右の `LEVEL DESIGN TUNE` パネルで、本文書の主要パラメーターをスライダーから即時変更できる。表示は **F1 / T キー**、または画面下部中央の `⚙ TUNE` ボタンでオンオフ（状態は `localStorage` に保存）。ゲーム中でも変更は次フレームから反映され、最大HP・拾得範囲・クリ率・与ダメ・攻撃間隔・必要XPは現在のステータスにも即時同期する。
+
+| グループ | 主な項目（`TUNE` キー） |
+|---|---|
+| ゲーム進行 | クリア生存時間 `winTime`、必要XPカーブ `xpBase` / `xpLinear` / `xpQuad` |
+| 敵湧き | 同時上限 `maxEnemies`、通常湧き間隔 `spawnBase` / `spawnDecay` / `spawnMin`、精鋭 `eliteTime` / `eliteRate` |
+| 群れ・ボス | `swarmFirst` / `swarmInterval` / `swarmBase` / `swarmDiv`、`bossFirst` / `bossInterval` |
+| 敵スケーリング | HP `hpDiv` / `hpK`、接触ダメージ `dmgDiv`、精鋭倍率、全敵倍率、速度ばらつき `spdVar` |
+| プレイヤー | 移動速度 `playerSpeed`、最大HP `playerMaxHp`、クリ率、拾得範囲、無敵時間、`accel` / `decel`、与ダメ / 攻撃間隔倍率 |
+| 経済・回復 | ハート回復量・落ち率、コイン倍率 |
+| 演出 | ヒットストップ / 画面シェイク倍率 |
+
+- デフォルト値は従来のハードコードと同一。値は `localStorage`（キー `pixelSurvivor.tune.v1`）に保存され、リロード後も保持される。
+- パネルの「初期値に戻す」で全項目をデフォルトへ復帰（現在のゲーム状態にも即反映）。
+
+### 2.11 操作感（ヒットストップ・移動イージング）と入力デバイス
 
 #### ヒットストップ（`g.punch()` → `g.hitStop`）
 
@@ -196,7 +213,8 @@
 |---|---|
 | `index.html` | エントリーポイント。`css/style.css` と `js/main.js`（type=module）のみを読み込む |
 | `css/style.css` | HUD・オーバーレイ・タイトル/ショップ UI のスタイル |
-| `js/main.js` | ゲーム生成と描画・環境演出のループ制御、キーボード/タッチ/Gamepad 入力、ヒットストップの凍結（`preview.js` を import） |
+| `js/main.js` | ゲーム生成と描画・環境演出のループ制御、キーボード/タッチ/Gamepad 入力、ヒットストップの凍結（`preview.js` / `debug.js` を import） |
+| `js/debug.js` | レベルデザイン調整パネル。`game.js` の `TUNE` をスライダーでリアルタイム変更（F1 / T で表示切替、localStorage 保存） |
 | `js/preview.js` | レベルアップカード選択肢のプレビュー描画 |
 | `js/game.js` | プレイヤー・敵・湧き・衝突・経済などのロジック |
 | `js/weapons.js` | 武器（Lv上限8）とパッシブ（Lv上限4）の定義 |

@@ -35,6 +35,7 @@
         <div><b>Switchコントローラー</b> 左スティック/十字キーで移動、A で決定、＋ でポーズ</div>
         <div><b>P / Esc</b> ポーズ</div>
         <div><b>1 / 2 / 3</b> レベルアップ選択</div>
+        <div><b>F1 / T</b> レベルデザイン調整パネル ON/OFF</div>
       </div>
       <p class="goal">夜が明ける 5 分間、群がる魔物から生き延びろ。</p>
       <button id="startBtn">ゲームスタート</button>
@@ -73,6 +74,22 @@
 <div id="stickLayer" aria-hidden="true">
   <div id="stickBase"><div id="stickKnob"></div></div>
 </div>
+
+<!-- レベルデザイン調整パネル（スライダーでリアルタイム変更、F1 / T でオンオフ） -->
+<button id="debugToggle" type="button" aria-expanded="true" aria-controls="debugPanel">⚙ TUNE</button>
+<aside id="debugPanel" aria-label="レベルデザイン調整パネル">
+  <div id="debugHead">
+    <div>
+      <div class="dbgTitle">LEVEL DESIGN TUNE</div>
+      <div class="dbgHint">スライダーで即反映 / F1・T で表示切替</div>
+    </div>
+    <div class="dbgBtns">
+      <button id="debugReset" type="button" class="ghost">初期値に戻す</button>
+      <button id="debugClose" type="button" class="ghost" aria-label="パネルを閉じる">✕</button>
+    </div>
+  </div>
+  <div id="debugBody"></div>
+</aside>
 <script type="module" src="js/main.js"></script>
 </body>
 </html>
