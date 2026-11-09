@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>PixelFX Survivor ─ pixelfx vampire-like</title>
+<link rel="icon" href="data:,">
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -21,8 +22,12 @@
       <div id="dps">DPS 0.0</div>
       <div id="weapons"></div>
     </div>
+    <div id="bossWrap" class="hidden"><div class="bossLabel">BOSS</div><div id="bossBar"><div id="bossFill"></div></div></div>
+    <div id="shrineInfo" class="hidden">神殿 0 / 10 秒</div>
     <button id="pauseBtn" type="button" aria-label="ポーズ">▐▐</button>
+    <button id="dashBtn" type="button" aria-label="ダッシュ"><span id="dashFill"></span><span class="dashLabel">疾</span></button>
   </div>
+  <div id="banner" aria-live="polite"></div>
   <div id="dmgflash"></div>
 
   <!-- タイトル（右側に永続強化ショップを常設） -->
@@ -32,12 +37,18 @@
       <p class="sub">pixelfx で作るヴァンサバライク サバイバル</p>
       <div class="keys">
         <div><b>WASD / 矢印キー</b> 移動（攻撃はオート）</div>
+        <div><b>Space / コントローラー B / 疾ボタン</b> ダッシュ（無敵・2.5秒に1回）</div>
         <div><b>Switchコントローラー</b> 左スティック/十字キーで移動、A で決定、＋ でポーズ</div>
         <div><b>P / Esc</b> ポーズ</div>
         <div><b>1 / 2 / 3</b> レベルアップ選択</div>
         <div><b>F1 / T</b> レベルデザイン調整パネル ON/OFF</div>
       </div>
-      <p class="goal">夜が明ける 5 分間、群がる魔物から生き延びろ。</p>
+      <p class="goal">夜が明ける 5 分間、群がる魔物から生き延びろ。武器Lv8＋パッシブLv2で進化！</p>
+      <div id="bestLine">BEST 記録なし</div>
+      <div class="curseBox">
+        <h3>呪い（任意・コイン倍率アップ）</h3>
+        <div id="curseList"></div>
+      </div>
       <button id="startBtn">ゲームスタート</button>
     </div>
     <div class="titleShop">
@@ -48,10 +59,10 @@
     <div class="credit">effects by <a href="https://patch-gg.github.io/pixelfx/" target="_blank" rel="noopener">pixelfx</a> (MIT)</div>
   </div>
 
-  <!-- レベルアップ -->
+  <!-- レベルアップ／宝箱（レリック選択も同じカードUIを使う） -->
   <div id="levelup" class="overlay hidden">
     <h2>LEVEL UP!</h2>
-    <p class="tip">強化を選択（1 / 2 / 3 キーでも選べます）</p>
+    <p class="tip">強化を選択（1 / 2 / 3 キーでも選べます）。宝箱を開けるとレリックの3択になります</p>
     <div id="cards"></div>
   </div>
 
@@ -66,6 +77,7 @@
   <div id="ending" class="overlay hidden">
     <h2 id="endTitle">YOU DIED</h2>
     <div id="endStats"></div>
+    <button id="continueBtn" class="hidden">エンドレスで続ける</button>
     <button id="retryBtn">リトライ</button>
     <button id="toTitleBtn" class="ghost">タイトルにもどる（ショップで購入）</button>
   </div>

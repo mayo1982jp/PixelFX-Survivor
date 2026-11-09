@@ -2,7 +2,7 @@
 // 世界（canvas 内）はすべて pixelfx のフレームバッファ経由で描画される。
 import { createGame, setViewport } from "./game.js";
 import { render, updateAmbient, resetAmbient, resetFrame } from "./render.js";
-import { makeChoices, applyChoice } from "./weapons.js";
+import { makeChoices, applyChoice, makeRelicChoices, applyRelicChoice } from "./weapons.js";
 import { FX } from "./fx.js";
 import { initAudio, sfx } from "./sfx.js";
 import * as meta from "./meta.js";
@@ -19,10 +19,12 @@ window.game = game; // デバッグ用フック（コンソールから状態を
 initDebug(game); // レベルデザイン調整パネル（F1 / T でオンオフ）
 let state = "title"; // title | playing | levelup | pause | end
 let choices = [];
+let cardMode = "level"; // level | relic（宝箱）
+let dashPressed = false; // ダッシュの単発入力（キー／Bボタン／ダッシュボタン）
 
 // ---- 入力 ----------------------------------------------------------------
 const keys = new Set();
-const input = { left: false, right: false, up: false, down: false, ax: 0, ay: 0 };
+const input = { left: false, right: false, up: false, down: false, ax: 0, ay: 0, dash: false };
 const KEYMAP = {
   ArrowLeft: "left", KeyA: "left", ArrowRight: "right", KeyD: "right",
   ArrowUp: "up", KeyW: "up", ArrowDown: "down", KeyS: "down",
@@ -35,6 +37,7 @@ addEventListener("keydown", (ev) => {
   if (ev.code === "F1" || ev.code === "KeyT") return;
   if (inDebug) return;
   if (KEYMAP[ev.code]) { keys.add(ev.code); ev.preventDefault(); }
+  if (ev.code === "Space" && state === "playing") { dashPressed = true; ev.preventDefault(); }
   if (ev.code === "KeyP" || ev.code === "Escape") togglePause();
   if (state === "levelup" && ["Digit1", "Digit2", "Digit3"].includes(ev.code)) choose(parseInt(ev.code.slice(-1)) - 1);
   if (state === "title" && (ev.code === "Enter" || ev.code === "Space")) start();
@@ -51,6 +54,7 @@ function readInput() {
   // Switch コントローラーの左スティックは入力量（倒し込み）を保ったままアナログで渡す
   input.ax = pad.connected ? pad.ax : 0;
   input.ay = pad.connected ? pad.ay : 0;
+  input.dash = dashPressed;
 }
 
 // ---- タッチ：フローティング仮想スティック（移動のみ／攻撃はオート） ---------------
@@ -75,7 +79,7 @@ function clearStick() { zeroStick(); stick.id = null; stickLayer.classList.remov
 function stickDown(ev) {
   if (state !== "playing") return;              // メニュー/カード表示中は移動を受け付けない
   if (ev.pointerType === "mouse") return;        // デスクトップのマウスは無視（キーボードで操作）
-  if (ev.target && ev.target.closest && ev.target.closest("#pauseBtn")) return; // ポーズボタンは優先
+  if (ev.target && ev.target.closest && ev.target.closest("#pauseBtn, #dashBtn")) return; // ポーズ／ダッシュボタンは優先
   if (ev.target && ev.target.closest && ev.target.closest("#debugPanel, #debugToggle")) return; // 調整パネル操作を優先
   if (stick.id !== null) return;                 // 既に1本操作中
   document.body.classList.add("touch");
@@ -161,6 +165,7 @@ function handlePad() {
     if (hit("a") || hit("b")) start();
     return;
   }
+  if (state === "playing" && hit("b")) { dashPressed = true; return; } // Bボタン＝ダッシュ
   if (hit("plus") || hit("l3")) { // ＋／スタート：playing⇔pause をトグル
     if (state === "playing" || state === "pause") togglePause();
     return;
@@ -193,11 +198,19 @@ game.onLevelUp = () => {
   game.fxTop.spawn(FX.confetti, game.player.x, game.player.y - 20, { seed: game.rseed() });
   openCards();
 };
-game.onEnd = (win) => { clearStick(); state = "end"; ui.showEnd(win, game); };
+game.onEnd = (win) => { clearStick(); state = "end"; ui.showEnd(win, game); ui.renderBest(); };
+game.onBanner = (text) => ui.showBanner(text);
+game.onChest = () => {
+  if (state !== "playing") return;
+  state = "levelup"; // カードUIを流用（cardMode で判別）
+  sfx.level();
+  openCards("relic");
+};
 
-function openCards() {
-  clearStick(); // レベルアップ中は移動停止
-  choices = makeChoices(game);
+function openCards(mode = "level") {
+  clearStick(); // カード表示中は移動停止
+  cardMode = mode;
+  choices = mode === "relic" ? makeRelicChoices(game) : makeChoices(game);
   const entries = ui.showCards(choices, choose);
   pad.cursor = 0; pad.held = false;
   ui.setCardCursor(pad.connected ? 0 : -1); // コントローラーを使っているときだけカーソルを出す
@@ -207,6 +220,13 @@ function openCards() {
 function choose(i) {
   if (state !== "levelup" || !choices[i]) return;
   ui.setCardCursor(-1);
+  if (cardMode === "relic") {
+    applyRelicChoice(game, choices[i]);
+    sfx.select();
+    if (game.pendingLevels > 0) openCards("level"); // 宝箱の直後にレベルアップが控えていれば続けて出す
+    else { ui.hideCards(); preview.stop(); state = "playing"; }
+    return;
+  }
   applyChoice(game, choices[i]);
   game.pendingLevels--;
   sfx.select();
@@ -225,15 +245,31 @@ function buyMeta(id) {
   else sfx.hurt();
 }
 function backToTitle() {
+  game.bankRun(); // 勝利画面から直接戻る場合もコインを一度だけ入金
   ui.hideEnd();
   state = "title";
   ui.showTitle(true);
   ui.renderShop(buyMeta); // ラン終了後の貯金増加を反映
+  ui.renderCurses(toggleCurse);
+  ui.renderBest();
+}
+
+function toggleCurse(id) {
+  meta.toggleCurse(id);
+  sfx.select();
+  ui.renderCurses(toggleCurse);
+}
+
+function continueEndless() {
+  ui.hideEnd();
+  game.continueEndless();
+  state = "playing";
 }
 
 function start() {
   initAudio();
   clearStick();
+  game.bankRun(); // 前ラン（勝利画面）未入金分があれば一度だけ入金してからリセット
   game.reset(); // meta.js の購入レベルが初期ステータスへ反映される
   resetAmbient();
   preview.stop();
@@ -244,8 +280,13 @@ function start() {
 document.getElementById("startBtn").onclick = start;
 document.getElementById("retryBtn").onclick = start;
 document.getElementById("toTitleBtn").onclick = backToTitle;
+document.getElementById("continueBtn").onclick = continueEndless;
 document.getElementById("pauseBtn").onclick = () => togglePause();
 document.getElementById("resumeBtn").onclick = () => togglePause();
+document.getElementById("dashBtn").addEventListener("pointerdown", (ev) => {
+  ev.preventDefault();
+  if (state === "playing") dashPressed = true;
+});
 
 // ---- ビューポート：キャンバスを画面全面に広げ、アスペクトに合わせた解像度にする ------
 const SHORT = 180; // 基準となる短辺の論理ピクセル数（デスクトップ 320×180 と同スケール）
@@ -287,6 +328,7 @@ function loop(now) {
         acc -= STEP;
         readInput();
         game.update(STEP, input);
+        dashPressed = false; // ダッシュ入力は1ステップで消費
         if (state !== "playing") break; // レベルアップ／死亡で抜けたら残りステップを捨てる
       }
       if (acc > STEP) acc = 0;
@@ -307,4 +349,6 @@ function loop(now) {
 resize(); // 画面サイズから論理解像度を確定（この後の reset / render に反映）
 game.reset();
 ui.renderShop(buyMeta); // タイトル常設のショップを初期描画
+ui.renderCurses(toggleCurse);
+ui.renderBest();
 requestAnimationFrame(loop);

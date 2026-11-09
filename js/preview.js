@@ -10,6 +10,8 @@ const GREEN = ["#04140a", "#0c3a1c", "#1c6a34", "#38a85a", "#68d88a", "#a6f0c0",
 
 /** 選択肢 c を構成するエフェクトモジュールとオプションを返す（無ければ null） */
 function previewFor(c) {
+  if (c.kind === "evolve") return { mod: FX.manaBurst };
+  if (c.kind === "relic") return { mod: FX.coinSpin, opts: { palette: PAL.xpGold } };
   if (c.kind === "weapon" || c.kind === "new") {
     switch (c.id) {
       case "wand": return { mod: FX.plasmaShot };

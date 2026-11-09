@@ -64,6 +64,65 @@ html, body {
 #weapons span.new { animation: pop .5s; border-color: #ffde5e; color: #ffde5e; }
 @keyframes pop { 0% { transform: scale(1.8); } 100% { transform: scale(1); } }
 
+/* ボスHPバー */
+#bossWrap {
+  position: absolute; top: 44px; left: 50%; transform: translateX(-50%);
+  width: min(420px, 62%); text-align: center;
+}
+#bossWrap .bossLabel { font-size: 12px; letter-spacing: .35em; color: #ff8a8e; text-shadow: 1px 1px 0 #000; }
+#bossBar { height: 10px; background: #0c1220cc; border: 1px solid #7a2c3a; margin-top: 2px; }
+#bossFill { height: 100%; width: 100%; background: linear-gradient(#ff6a5a, #a01828); transition: width .15s; }
+
+/* 神殿の進行度 */
+#shrineInfo {
+  position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
+  font-size: 15px; color: #ffde5e; text-shadow: 1px 1px 0 #000;
+  padding: 2px 10px; background: #101a2add; border: 1px solid #7a6a2c;
+}
+
+/* イベント／ボスのバナー */
+#banner {
+  position: absolute; top: 18%; left: 50%; transform: translateX(-50%) scale(.92);
+  font-size: clamp(17px, 3.4vmin, 28px); letter-spacing: .08em; white-space: nowrap;
+  color: #ffde5e; text-shadow: 2px 2px 0 #000, 0 0 14px #ff9a3c88;
+  padding: 8px 22px; background: #0a1120cc; border: 2px solid #7a6a2c;
+  opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; z-index: 5;
+}
+#banner.on { opacity: 1; transform: translateX(-50%) scale(1); }
+
+/* ダッシュボタン（スマホでは常時、その他でも表示。クールダウン中はフィルが溜まる） */
+#dashBtn {
+  position: absolute; bottom: calc(34px + env(safe-area-inset-bottom)); left: calc(10px + env(safe-area-inset-left));
+  width: 56px; height: 56px; min-width: 48px; min-height: 48px; padding: 0; border-radius: 50%;
+  background: #101a2acc; color: #7fd4ff; box-shadow: 0 0 0 2px #2a4a6a, 3px 3px 0 2px #000;
+  overflow: hidden; pointer-events: auto;
+}
+#dashBtn #dashFill { position: absolute; left: 0; bottom: 0; width: 100%; height: 100%; background: #2f8fd855; pointer-events: none; }
+#dashBtn .dashLabel { position: relative; font-size: 22px; font-weight: bold; }
+#dashBtn.ready { color: #ffde5e; box-shadow: 0 0 0 2px #ffde5e, 3px 3px 0 2px #000, 0 0 14px #ffde5e66; }
+#dashBtn:active { transform: scale(.94); }
+
+/* 進化・レリックカード */
+.card.evolve { border-color: #ff9a3c; background: #241408; box-shadow: 0 0 12px #ff9a3c55; }
+.card.relic { border-color: #c9901c; background: #1d1808; }
+.card .hint { font-size: clamp(11px, 1.8vmin, 14px); color: #ffce4a; margin-top: 5px; line-height: 1.4; }
+#endStats .newrec { color: #ff9a3c; font-weight: bold; }
+
+/* タイトルのベスト記録と呪い選択 */
+#bestLine { font-size: clamp(12px, 2vmin, 16px); color: #7fe8c8; letter-spacing: .06em; }
+.curseBox { text-align: center; }
+.curseBox h3 { font-size: clamp(13px, 2vmin, 16px); color: #c9a0ff; letter-spacing: .1em; margin-bottom: 6px; }
+#curseList { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; align-items: stretch; }
+.curseBtn {
+  font-size: clamp(12px, 1.9vmin, 15px); padding: 7px 12px; min-height: 44px;
+  background: #1a1030; color: #9fb4cc; box-shadow: 0 0 0 2px #3a2a5a, 3px 3px 0 2px #000;
+  display: flex; flex-direction: column; gap: 2px; align-items: center;
+}
+.curseBtn span { font-size: .82em; color: #8a7ab0; }
+.curseBtn.on { background: #3a2270; color: #ffde5e; box-shadow: 0 0 0 2px #c9a0ff, 3px 3px 0 2px #000; }
+.curseBtn.on span { color: #e8d8ff; }
+.curseMult { font-size: clamp(12px, 1.9vmin, 15px); color: #ffce4a; align-self: center; }
+
 /* 被ダメ flashes */
 #dmgflash { position: absolute; inset: 0; pointer-events: none; background: radial-gradient(transparent 55%, #b3122088); opacity: 0; transition: opacity .25s; }
 #dmgflash.on { opacity: 1; transition: opacity 0s; }

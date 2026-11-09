@@ -58,6 +58,13 @@ const GROUPS = [
     { key: "heartRateElite", label: "ハート落ち率（精鋭）", min: 0, max: 1, step: 0.02, fmt: (v) => `${Math.round(v * 100)}%` },
     { key: "coinMultExtra", label: "コイン取得倍率", min: 0.1, max: 5, step: 0.1, fmt: (v) => `${v}×` },
   ] },
+  { title: "ダッシュ・イベント", params: [
+    { key: "dashCd", label: "ダッシュ クールダウン", min: 0.5, max: 6, step: 0.1, fmt: (v) => `${v.toFixed(1)}秒` },
+    { key: "dashTime", label: "ダッシュ 持続時間", min: 0.05, max: 0.5, step: 0.01, fmt: (v) => `${v.toFixed(2)}秒` },
+    { key: "dashSpeed", label: "ダッシュ 速度倍率", min: 1.5, max: 6, step: 0.1, fmt: (v) => `${v.toFixed(1)}×` },
+    { key: "eventFirst", label: "イベント初回", min: 5, max: 180, step: 5, fmt: (v) => `${v}秒`, note: "次ランから" },
+    { key: "eventInterval", label: "イベント間隔（中心）", min: 20, max: 180, step: 5, fmt: (v) => `${v}秒`, note: "±7秒で抽選。既定68→61〜75秒" },
+  ] },
   { title: "演出", params: [
     { key: "hitStopScale", label: "ヒットストップ倍率", min: 0, max: 2, step: 0.05, fmt: (v) => `${v}×` },
     { key: "shakeScale", label: "画面シェイク倍率", min: 0, max: 2, step: 0.05, fmt: (v) => `${v}×` },

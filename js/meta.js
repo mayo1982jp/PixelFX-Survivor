@@ -33,6 +33,57 @@ export function canBuy(id) {
   return lv < META_UPGRADES[id].max && save.bank >= META_UPGRADES[id].cost(lv);
 }
 
+// ---- 呪い（カース）：ラン開始前に選ぶ自己縛り。1つごとにコイン倍率 ×1.5 ----
+const CURSE_KEY = "pixelSurvivor.curse.v1";
+export const CURSES = {
+  curseHp: { name: "強靭の呪い", desc: "敵HP +50% ／ コイン ×1.5" },
+  curseSpd: { name: "疾風の呪い", desc: "敵速度 +20% ／ コイン ×1.5" },
+  curseElite: { name: "精鋭の呪い", desc: "精鋭出現率 2倍 ／ コイン ×1.5" },
+};
+export const CURSE_ORDER = Object.keys(CURSES);
+function loadCurses() {
+  try {
+    const s = JSON.parse(localStorage.getItem(CURSE_KEY));
+    if (Array.isArray(s)) return s.filter((id) => id in CURSES);
+  } catch { /* 破損時は呪いなし */ }
+  return [];
+}
+let curseSel = loadCurses();
+export function getCurses() { return [...curseSel]; }
+export function hasCurse(id) { return curseSel.includes(id); }
+export function toggleCurse(id) {
+  curseSel = hasCurse(id) ? curseSel.filter((c) => c !== id) : [...curseSel, id];
+  try { localStorage.setItem(CURSE_KEY, JSON.stringify(curseSel)); } catch { /* ignore */ }
+  return getCurses();
+}
+/** 呪いによるコイン倍率（1つごとに ×1.5 の累乗） */
+export function curseCoinMult() { return Math.pow(1.5, curseSel.length); }
+
+// ---- 自己ベスト記録（生存時間・レベル・撃破数） ----
+const BEST_KEY = "pixelSurvivor.best.v1";
+function loadBest() {
+  try {
+    const s = JSON.parse(localStorage.getItem(BEST_KEY));
+    if (s && typeof s === "object") return { time: +s.time || 0, level: +s.level || 0, kills: +s.kills || 0 };
+  } catch { /* 破損時は記録なし */ }
+  return { time: 0, level: 0, kills: 0 };
+}
+let best = loadBest();
+export function getBest() { return { ...best }; }
+/** ラン結果を記録。返り値は { best, isNew: {time,level,kills} }（今回更新された項目が true） */
+export function recordBest(res) {
+  const isNew = {
+    time: res.time > best.time, level: res.level > best.level, kills: res.kills > best.kills,
+  };
+  if (isNew.time) best.time = Math.floor(res.time);
+  if (isNew.level) best.level = res.level | 0;
+  if (isNew.kills) best.kills = res.kills | 0;
+  if (isNew.time || isNew.level || isNew.kills) {
+    try { localStorage.setItem(BEST_KEY, JSON.stringify(best)); } catch { /* ignore */ }
+  }
+  return { best: { ...best }, isNew };
+}
+
 /** 購入成功なら true。コインを減らしてレベルを 1 上げる */
 export function buy(id) {
   if (!canBuy(id)) return false;

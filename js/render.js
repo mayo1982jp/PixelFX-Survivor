@@ -75,6 +75,22 @@ export function render(g, ctx) {
   // ① 地面系Spell（fxWorld）はエンティティの後ろ
   g.fxWorld.draw(frame);
 
+  // ゾーン（クラゲの鈍足の泡・炎の軌跡）とXP神殿サークルを地面に描く
+  {
+    const pz = painterFor(frame);
+    for (const z of g.zones || []) {
+      pz.place(z.x, z.y);
+      if (z.kind === "slow") pz.glow(0, 0, z.r, ICE, 0.16);
+      else if (z.kind === "burn") pz.glow(0, 0, z.r, GLOW_WARM, 0.22);
+    }
+    if (g.shrine && !g.shrine.done) {
+      const sh = g.shrine;
+      pz.place(sh.x, sh.y);
+      pz.glow(0, 0, sh.r, hex("#ffde5e"), 0.10 + 0.10 * (sh.progress / sh.need));
+      pz.glow(0, 0, 6, hex("#ffde5e"), 0.35);
+    }
+  }
+
   // ② エンティティ（敵本体クリッター／拾い物／プレイヤー）を y 順に
   const items = [];
   for (const e of g.enemies) items.push({ y: e.y, e });
@@ -100,6 +116,9 @@ export function render(g, ctx) {
       const p2 = painterFor(frame);
       if (e.flash > 0) { p2.place(e.x, e.y - 8); p2.glow(0, 0, 10, WHITE, 0.5 * Math.min(1, e.flash / 0.12)); }
       if (e.slow > 0) { p2.place(e.x, e.y - 8); p2.glow(0, 0, 9, ICE, 0.3); }
+      if (e.telegraph) { p2.place(e.x, e.y - 8); p2.glow(0, 0, 16, hex("#ff4030"), 0.45); } // チャージ予告
+      if (e.chestElite) { p2.place(e.x, e.y - 8); p2.glow(0, 0, 15, hex("#ffce4a"), 0.4); } // 宝箱の精鋭は金色
+      if (e.boss) { p2.place(e.x, e.y - 10); p2.glow(0, 0, 20, hex("#b060ff"), 0.25); }
       if (e.elite) { // 精鋭には HP バー
         const w = 22, hp = Math.max(0, e.hp / e.maxHp), by = e.y - (e.fly ? 46 : 32);
         p2.place(0, 0);
@@ -113,6 +132,7 @@ export function render(g, ctx) {
 
   // ③ 弾は常に前（視認性優先）
   for (const b of g.projectiles) b.f.draw(frame);
+  for (const b of g.enemyShots || []) b.f.draw(frame);
 
   // ④ 衝撃・爆発・着雷などの foreground 演出 → ⑤ ダメージ数字（最前面）
   g.fxTop.draw(frame);
