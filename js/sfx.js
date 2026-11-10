@@ -1,6 +1,10 @@
 // 豪華な効果音: earshot のサウンドバンクから tools/render_sfx.py で生成した
 // サンプル（assets/sfx/*.wav）を WebAudio で再生する。
 // サンプルが見つからない場合（未生成・オフライン）は従来の軽量シンセにフォールバックする。
+// 一部の専用音（ダッシュ／進化／レリック）は ZzFX（MIT）シンセで作り、BGM は music.js（ZzFXM）。
+import { zzfx, ZZFX } from "../vendor/zzfx/zzfx.js";
+import { music } from "./music.js";
+
 let ctx = null, master = null, loading = false;
 const banks = new Map();   // name -> { buffers: [AudioBuffer], gain, jitter }
 const active = new Map();  // name -> 再生中のボイス数
@@ -13,6 +17,8 @@ export function initAudio() {
   master = ctx.createGain();
   master.gain.value = 0.45;
   master.connect(ctx.destination);
+  ZZFX.volume = 0.5;
+  music.attach(ctx); // BGM と ZzFX の再生先をこのコンテキストへ統一
   if (!loading) { loading = true; loadSamples(); }
 }
 
@@ -104,3 +110,25 @@ export const sfx = Object.fromEntries(
     name, (vol = 1) => play(name, vol, fallback),
   ]),
 );
+
+// ---- ZzFX 専用音（サンプルバンクに無い音色だけをシンセで作る） -----------------
+const zzLast = {};
+function zzOnce(name, minGap, fn) {
+  if (!ctx) return;
+  const now = performance.now();
+  if (now - (zzLast[name] || 0) < minGap * 1000) return; // 連打抑制（ボイス上限の代わり）
+  zzLast[name] = now;
+  try { fn(); } catch { /* 音が出なくてもゲームは止めない */ }
+}
+/** ダッシュの風切り音（上昇スイープ） */
+sfx.dash = () => zzOnce("dash", 0.12, () => zzfx(1.1, 0, 240, 0.03, 0.06, 0.22, 0, 1, 22));
+/** 進化ファンファーレ（D-F-A-D の4音アルペジオ、矩形波） */
+sfx.evolve = () => zzOnce("evolve", 0.3, () => {
+  [587.33, 698.46, 880, 1174.66].forEach((f, i) =>
+    setTimeout(() => { try { zzfx(0.65, 0, f, 0, 0.07, 0.16, 5, 0.5); } catch { /* noop */ } }, i * 90));
+});
+/** レリック取得のキラキラ音 */
+sfx.relic = () => zzOnce("relic", 0.3, () => {
+  zzfx(0.55, 0, 1318.5, 0, 0.05, 0.2, 0, 1);
+  setTimeout(() => { try { zzfx(0.55, 0, 1567.98, 0, 0.05, 0.26, 0, 1); } catch { /* noop */ } }, 70);
+});

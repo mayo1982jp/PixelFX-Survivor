@@ -145,9 +145,11 @@ WEAPONS.wandEvo = {
     const src = g.nearestEnemy(p.x, p.y, 160) || { x: p.x + (p.flip ? -80 : 80), y: p.y - 20 };
     const base = Math.atan2(src.y - (p.y - 10), src.x - p.x);
     const n = this.count(lv), spread = 0.18;
+    // 進化演出：詠唱と同時に arcane-missiles の魔法弾がほとばしり、弾体は magic-missile の見た目になる
+    g.fxTop.spawn(FX.arcaneMissiles, p.x, p.y - 12, { seed: g.rseed(), flip: !p.flip });
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * spread;
-      g.addProjectile(p.x, p.y - 12, a, 125, 1.8, this.dmg(lv), Math.floor(lv / 4) + 1);
+      g.addProjectile(p.x, p.y - 12, a, 125, 1.8, this.dmg(lv), Math.floor(lv / 4) + 1, FX.magicMissile);
     }
     sfx.shot();
   },
@@ -160,6 +162,7 @@ WEAPONS.novaEvo = {
   fire(g, lv) {
     const p = g.player;
     g.fxWorld.spawn(FX.snowflakeBurst, p.x, p.y, { seed: g.rseed(), count: 10 + lv });
+    g.fxWorld.spawn(FX.frostNova, p.x, p.y - 4, { seed: g.rseed() }); // 進化演出：本物の frost-nova を重ねる
     g.damageArea(p.x, p.y - 8, this.radius(lv), this.dmg(lv), { slow: 3.0, sfx: sfx.nova });
     g.delayed.push({ t: 0.5, x: p.x, y: p.y, r: this.radius(lv) * 0.8, dmg: Math.round(this.dmg(lv) * 0.6), kind: "nova2", slow: 2.0 });
   },
@@ -190,7 +193,7 @@ WEAPONS.smiteEvo = {
     const p = g.player;
     const e = g.nearestEnemy(p.x, p.y, 140) || g.randomEnemy(140);
     if (!e) return;
-    g.fxTop.spawn(FX.smite, e.x, e.y, { seed: g.rseed() });
+    g.fxTop.spawn(FX.holyPillar, e.x, e.y, { seed: g.rseed() }); // 進化演出：聖光の柱
     g.fxTop.spawn(FX.manaBurst, e.x, e.y - 10, { seed: g.rseed() });
     g.delayed.push({ t: 0.54, x: e.x, y: e.y, r: 36 + 2 * lv, dmg: this.dmg(lv), kind: "smite" });
     sfx.smite();
@@ -205,6 +208,7 @@ WEAPONS.starsEvo = {
     const c = g.busiestPoint(100);
     if (!c) return;
     g.fxTop.spawn(FX.starFall, c.x, c.y, { seed: g.rseed() });
+    g.fxTop.spawn(FX.meteor, c.x, c.y - 30, { seed: g.rseed() }); // 進化演出：隕石が降り注ぐ
     for (let i = 0; i < this.hits(lv); i++)
       g.delayed.push({ t: 0.6 + i * 0.45, x: c.x + (Math.random() - 0.5) * 60, y: c.y + (Math.random() - 0.5) * 36, r: 36 + 2 * lv, dmg: this.dmg(lv), kind: "star" });
     sfx.star();
@@ -221,6 +225,16 @@ WEAPONS.flameEvo = {
       if (Math.hypot(e.x - p.x, e.y - p.y) <= this.radius(lv)) e.burn = Math.max(e.burn, 4.0);
     });
     g.burnDps = this.dps(lv);
+    // 進化演出（見た目のみ・数値は不変）：3回に1回、範囲内の敵の上に炎柱。6回に1回は足元に炎の輪
+    g.flameEvoTick = (g.flameEvoTick || 0) + 1;
+    if (g.flameEvoTick % 3 === 0) {
+      const t = g.nearestEnemy(p.x, p.y, this.radius(lv));
+      if (t) {
+        g.fxTop.spawn(FX.flamePillar, t.x, t.y, { seed: g.rseed(), palette: PAL.fire });
+        g.fxTop.spawn(FX.fireball, t.x, t.y - 16, { seed: g.rseed(), palette: PAL.fire });
+      }
+    }
+    if (g.flameEvoTick % 6 === 0) g.fxWorld.spawn(FX.fireRing, p.x, p.y - 6, { seed: g.rseed(), palette: PAL.fire });
   },
 };
 

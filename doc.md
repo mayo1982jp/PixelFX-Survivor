@@ -317,14 +317,18 @@
 | `js/game.js` | プレイヤー・敵（行動パターン／ボス）・湧き・衝突・経済・ダッシュ・イベント・ゾーン・敵弾などのロジック |
 | `js/weapons.js` | 武器（Lv上限8）・進化武器・パッシブ（Lv上限4）・レリックの定義 |
 | `js/meta.js` | 永続ショップ（Lv上限5）、呪い選択、自己ベスト記録と `localStorage` 保存 |
-| `js/fx.js` / `js/render.js` | pixelfx エフェクトのレジストリと描画（ゾーン・神殿・敵弾・予告発光を含む） |
-| `js/sfx.js` | サンプル再生 + WebAudio シンセフォールバックの効果音 |
+| `js/fx.js` / `js/render.js` | pixelfx エフェクトのレジストリ（66種）と描画（ゾーン・神殿・敵弾・予告発光・noisejs 地面・天候レイヤを含む） |
+| `js/sfx.js` | サンプル再生 + WebAudio シンセフォールバックの効果音 ＋ ZzFX 専用音（ダッシュ／進化／レリック） |
+| `js/music.js` | BGM：ZzFXM で合成したオリジナル曲（Dマイナー／138BPM／約62.6秒ループ）の再生・トグル管理 |
 | `js/witch.js` | プレイヤー（魔女）の sprite（ドット絵データとパレット） |
 | `assets/sfx/` | earshot bank でレンダリングした効果音 WAV（48kHz ステレオ 16bit）と `manifest.json` |
 | `tools/render_sfx.py` | earshot のサウンドバンクから `assets/sfx/` を再生成するスクリプト（`python tools/render_sfx.py`） |
 | `tools/check_feel.mjs` | ヒットストップ・移動イージング・アナログ入力のヘッドレス確認スクリプト（`node tools/check_feel.mjs`） |
 | `tools/check_new_features.mjs` | 敵行動・ボス・ダッシュ・イベント/レリック・進化/シナジー・エンドレス/呪い/ベストの直接トリガーテスト（`node tools/check_new_features.mjs`、全52件） |
-| `vendor/pixelfx/` | pixelfx ライブラリ本体（MIT）。`core/index.js` と各 `fx/**` を import |
+| `tools/check_oss.mjs` | OSS 連携の直接トリガーテスト：全66エフェクトの描画、BGM 状態遷移、noise 決定性・地面タイル（`node tools/check_oss.mjs`、全29件） |
+| `vendor/pixelfx/` | pixelfx ライブラリ本体 v0.3.1（MIT、244エフェクト）。`core/index.js` と各 `fx/**` を import |
+| `vendor/zzfx/` / `vendor/zzfxm/` | ZzFX v1.4.0 / ZzFXM v2.0.3（MIT）。効果音シンセと BGM 合成。ESM 化と AudioContext 遅延生成の最小改変あり（各ファイル冒頭に明記） |
+| `vendor/noisejs/` | noisejs（ISC）。Perlin/Simplex ノイズ。ESM ラッパのみの最小改変 |
 | `.github/workflows/pages.yml` | GitHub Pages への自動公開ワークフロー |
 
 `index.html` は直接 `css/style.css` と `js/main.js` だけを参照し、そこから ES module 経由で他の `js/*` と `vendor/pixelfx/*` に展開される。ビルド工程は持たない完全静的サイト。
@@ -353,3 +357,64 @@ npm start          # npx serve -l 8080 . を起動 → http://localhost:8080
 **初回の一度だけ**、リポジトリ設定で **Settings → Pages → Build and deployment → Source** を「GitHub Actions」に切り替える必要がある（デフォルトの `GITHUB_TOKEN` では Pages サイトの作成＝管理者操作ができないため）。設定後は push のたびに自動デプロイされる。
 
 公開 URL: **https://mayo1982jp.github.io/PixelFX-Survivor/**
+
+---
+
+## 5. OSS 連携（2026-11-11 追加）
+
+### 5.1 pixelfx フル配線＋上流アップデート
+
+- **採用ルート：ベンダーのフルアップデート**。上流（patch-gg/pixelfx v0.3.1、244エフェクト）と旧ベンダーを比較したところ、`core/`（createFx / FxInstance / painter / particles 等）は**バイト単位で同一**で、旧ベンダーは上流の部分集合だった。そのため API 互換リスクなしと判断し、新カテゴリ（melee / moves / nature / scifi / shadow / status / transitions / water）など新規105ファイルをそのまま取り込んだ。`vendor/pixelfx/fx/` は 266 ファイル（エフェクト本体244＋`_lib`等22）。
+- **FX レジストリは 31 → 66 種**（`js/fx.js`）。追加した35種はすべてゲーム内の実スポーン箇所を持つ（下表）。数値バランスへの変更は一切なし（見た目のみ）。
+- 検証：`tools/check_oss.mjs` で全66種を生成・更新・描画し、例外なし＆非空白ピクセルを確認。
+
+| エフェクト | 配線先 |
+|---|---|
+| chain-lightning / spark-arc | 進化サンダー等の連鎖（`game.js` の `chainFrom`）：起点→対象へ稲妻、着弾点に火花 |
+| ice-shatter / ice-spikes | シナジー「氷結粉砕」発動時（減速中の敵への雷）。連発抑制 0.25 秒ゲート付き |
+| frost-nova | 進化ノヴァ「ブリザードノヴァ」の発動に重ねる |
+| meteor | 進化スター「メテオレイン」の着弾点に隕石 |
+| fireball / flame-pillar / fire-ring | 進化フレイム「ヘルフレイム」：3回に1回炎柱＋火球、6回に1回足元に炎の輪（見た目のみ） |
+| arcane-missiles / magic-missile | 進化ワンド「ハイパーワンド」：詠唱エフェクト＋弾の見た目を magic-missile に差し替え |
+| energy-disc | ボス フェーズ2の放射弾の見た目（通常弾と区別） |
+| holy-pillar | 進化スマイト「ジャッジメント」の落雷を聖光の柱に差し替え |
+| heal-aoe / collect-burst | 神殿達成の祝福／報酬バースト。collect-burst は磁石コアの全吸引の合図にも使用 |
+| big-explosion / shatter-death | ボス撃破（＋shatter-death）。shatter-death は通常 skull の死に様にも追加 |
+| soul-rise | ghost の死に様（poof から差し替え） |
+| implosion | 勝利（夜明け）の瞬間にプレイヤー位置へ |
+| chest-open / loot-beam | 宝箱：精鋭撃破時の落下地点に光柱、回収時に開封演出＋光柱 |
+| level-up（ui） | レベルアップ時（従来の confetti と併用） |
+| combo-counter / achievement | 100キルごとのコンボ表示／500キルごとの達成バッジ |
+| spawn-portal / portal | 宝箱の精鋭／ボスの出現ポータル（通常湧きは従来どおり即出現でバランス不変）。portal はボスのフェーズ移行にも |
+| summon-rise | ボスの子分召喚時 |
+| time-stop | ボス フェーズ2移行の瞬間 |
+| rune-circle | XP神殿の足元にループ表示（達成で停止） |
+| magic-circle-cast | 進化カード取得の瞬間 |
+| 天候セット（storm / rain / snow / cherry-blossoms / falling-leaves / god-rays） | 環境レイヤとして60秒ごとに巡回（次項） |
+
+**天候レイヤ**（`js/render.js`）：ゲーム内時間60秒ごとに storm → rain → snow → cherry-blossoms → falling-leaves → god-rays を巡回し、プレイヤー付近を原点に "front" 層だけ描く（"back" は全面ヘイズになるため使わない）。位置は noisejs のノイズでゆるやかに漂う。`fog / aurora / clouds` は全面被覆率が高く視認性と負荷の面で不採用、`blizzard` は被覆46%で不採用。TUNE パネル「演出」グループの `ambientFx`（ON/OFF、デフォルト ON）で無効化できる。既存の蛍（fireflies）も noise で漂うようになった。
+
+### 5.2 BGM と ZzFX 効果音（ZzFX / ZzFXM）
+
+- **BGM は新規追加**（従来は無音）。ZzFXM でオフライン合成した**オリジナル曲**（カバーではない書き下ろし）：Dマイナー、138 BPM、64ステップ×9パターン ≒ **62.6 秒ループ**。7楽器（鋸波ベース／キック／ノイズスネア／ハット／矩形リードアルペジオ／三角パッド／プラック）。曲データと再生は `js/music.js`。
+- 合成は初回再生時に1回だけ（実測 約0.7〜1.1 秒）、AudioBuffer 化してキャッシュ。ピーク 0.85 へ正規化し、音楽ゲイン 0.32 で効果音（master 0.45）の下に敷く。
+- AudioContext は `sfx.js` の `initAudio()` が作るものを共有（`music.attach(ctx)` が ZzFX の再生先も同じ ctx に統一）。自動再生ポリシーに従い、再生開始はスタートボタン等のユーザー操作内でのみ行う。
+- 遷移：スタートで開始／ポーズで停止・再開で再開／敗北で停止／勝利は再生継続しエンドレス継続で再開。
+- **♪ トグル**：タイトルとポーズ画面にボタン（44px 以上）。設定は `localStorage` の `pixelSurvivor.bgm.v1`（デフォルト ON）に保存。
+- **ZzFX 専用音**（`js/sfx.js` 末尾）：ダッシュの風切り `sfx.dash()`、進化ファンファーレ `sfx.evolve()`（D-F-A-D 4音）、レリック取得 `sfx.relic()`。サンプルバンクに無い音色だけをシンセで補い、連打抑制付き。
+- 改変点：ZzFX は import 時点で `new AudioContext` していたのを遅延生成に変更（Node テストとブラウザ警告の回避）。ZzFXM はレンダラ本体無改変で ESM 化。いずれも各ファイル冒頭コメントに明記。
+
+### 5.3 noisejs（地面テクスチャと漂い）
+
+- `vendor/noisejs/noise.js`（ISC）を ESM ラッパで取り込み。ランごとにシードを引き直す。
+- **地面**：256×256 の多重オクターブ Perlin タイルをラン開始時に1回だけ生成（`render.js` の `buildGroundTile`）し、描画時はピクセルコピーのみ（毎フレームのノイズ計算なし）。水平・垂直とも**ミラー反転タイリング**で継ぎ目を消す。色は従来の GRASS ランプ（暗い草色6段）に合わせ、花・小石・草の葉のハッシュ装飾は従来どおり上に載る。
+- **漂い**：天候レイヤと蛍の位置を 1D 的な Perlin サンプル（毎フレーム数回だけ）でゆっくり動かす。
+
+### 5.4 ライセンス
+
+| OSS | ライセンス | 用途 |
+|---|---|---|
+| patch-gg/pixelfx v0.3.1 | MIT | エフェクト全般（`vendor/pixelfx/`、LICENSE 同梱） |
+| KilledByAPixel/ZzFX v1.4.0 | MIT | 効果音シンセ（`vendor/zzfx/`、LICENSE 同梱） |
+| keithclark/ZzFXM v2.0.3 | MIT | BGM 合成（`vendor/zzfxm/`、LICENSE 同梱） |
+| josephg/noisejs | ISC（Perlin 実装部は原著作者により public domain） | 地面・漂い（`vendor/noisejs/`、LICENSE 同梱） |

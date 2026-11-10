@@ -66,6 +66,7 @@ const GROUPS = [
     { key: "eventInterval", label: "イベント間隔（中心）", min: 20, max: 180, step: 5, fmt: (v) => `${v}秒`, note: "±7秒で抽選。既定68→61〜75秒" },
   ] },
   { title: "演出", params: [
+    { key: "ambientFx", label: "環境エフェクト（天候）", min: 0, max: 1, step: 1, fmt: (v) => (v ? "ON" : "OFF") },
     { key: "hitStopScale", label: "ヒットストップ倍率", min: 0, max: 2, step: 0.05, fmt: (v) => `${v}×` },
     { key: "shakeScale", label: "画面シェイク倍率", min: 0, max: 2, step: 0.05, fmt: (v) => `${v}×` },
   ] },

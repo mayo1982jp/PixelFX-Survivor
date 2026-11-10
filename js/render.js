@@ -5,7 +5,8 @@
 import { createFrame, clearFrame, composite, painterFor, createFx, hex, stockActor, HERO, HERO_PAL, WHITE } from "../vendor/pixelfx/core/index.js";
 import { FX } from "./fx.js";
 import { WITCH, WITCH_PAL } from "./witch.js";
-import { VW, VH } from "./game.js";
+import { VW, VH, TUNE } from "./game.js";
+import { noise } from "../vendor/noisejs/noise.js";
 
 const BG = hex("#0a0f14");
 
@@ -21,16 +22,46 @@ function hash(x, y) {
   return (n ^ (n >> 16)) >>> 0;
 }
 
-/** 画面全域の地面をフレームへ直接書き込む（8px 斑中心の落ち着いた芝生＋まばらな草花・小石） */
+// ---- noisejs 地面タイル ----------------------------------------------------------
+// Perlin ノイズ（noisejs, ISC）の多重オクターブで 256x256 のモットリングを事前に生成し、
+// 描画時はピクセルコピーだけ（毎フレームのノイズ計算はしない）。水平・垂直とも
+// ミラー反転で繰り返すので継ぎ目は原理的に見えない。シードはランごとに変わる。
+const TILE = 256;
+let groundSeed = 1337;
+let groundTile = null;
+
+/** タイルを生成する純粋関数（テストから直接呼べる）。戻り値は TILE*TILE の色配列 */
+export function buildGroundTile(seed) {
+  noise.seed(seed);
+  const colors = new Uint32Array(TILE * TILE);
+  const F1 = 1 / 52, F2 = 1 / 13; // 大きな斑ら＋細部
+  for (let y = 0; y < TILE; y++) {
+    for (let x = 0; x < TILE; x++) {
+      const v = noise.perlin2(x * F1, y * F1) * 0.72 + noise.perlin2(x * F2 + 40.2, y * F2 + 9.1) * 0.28;
+      const t = Math.max(0, Math.min(1, v * 0.5 + 0.5 + (hash(x, y) % 997) / 997 * 0.05 - 0.025));
+      colors[y * TILE + x] = GRASS[Math.min(5, (t * 6) | 0)];
+    }
+  }
+  return colors;
+}
+/** ミラー繰り返しのタイル座標（負座標でも正しく折り返す） */
+export function mirrorTileCoord(w) {
+  const m = w & (TILE * 2 - 1);
+  return m < TILE ? m : TILE * 2 - 1 - m;
+}
+
+/** 画面全域の地面をフレームへ直接書き込む（ノイズタイル＋まばらな草花・小石） */
 function drawGround(frame) {
+  if (!groundTile) groundTile = buildGroundTile(groundSeed);
   const C = frame.color, ox = frame.ox, oy = frame.oy;
   for (let py = 0; py < VH; py++) {
     const wy = oy + py, row = wy >> 3;
+    const tileRow = mirrorTileCoord(wy) * TILE;
     let i = py * VW;
     for (let px = 0; px < VW; px++) {
       const wx = ox + px, col = wx >> 3;
+      let c = groundTile[tileRow + mirrorTileCoord(wx)]; // ノイズの斑ら
       const h = hash(col, row);
-      let c = GRASS[h % 4];                       // 斑（8px タイル）
       const f = hash(wx >> 1, wy >> 1);
       if (f % 97 === 0) c = FLOWER[f % 3];        // まれに草花
       else if (f % 89 === 0) c = PEBBLE[f % 2];   // まれに小石
@@ -150,22 +181,58 @@ export function render(g, ctx) {
       seed: ((Math.round(wantX) * 31 + Math.round(wantY) * 7) & 250) + 2,
     });
   }
+  // 蛍の群れ自体もノイズでゆるやかに漂わせる（毎フレーム数回だけの安い計算）
+  flies.f.options.x = flies.ax + noise.perlin2(g.time * 0.045, 11.1) * 14;
+  flies.f.options.y = flies.ay + noise.perlin2(5.7, g.time * 0.045) * 8;
   // "front" のみ描画: drawBack は画面全域を覆う暗い夜のヘイズ(不透明下地)なので
   // 自前の世界の上に乗せると黒マスクになる。手前の草と近場の蛍だけ重ねる。
   flies.f.draw(frame, "front");
+
+  // ⑦ 天候レイヤ（pixelfx weather）：60秒ごとに 嵐→雨→雪→桜→落葉→神光 を巡回。
+  // 原点は各エフェクトの中央下（画面中心＝プレイヤー付近）に合わせ、ノイズで漂わせる。
+  // draw は "front" のみ（理由は蛍と同じ）。TUNE.ambientFx=0 で無効化できる。
+  if (TUNE.ambientFx > 0 && g.player) {
+    const idx = Math.floor(Math.max(0, ambientT) / 60) % WEATHERS.length;
+    if (idx !== weatherIdx || !weather.f) {
+      if (weather.f) weather.f.stop();
+      weatherIdx = idx;
+      weather.f = createFx(WEATHERS[idx], { seed: 7 + idx * 13, light: 0.35 });
+    }
+    weather.f.options.x = g.player.x + noise.perlin2(ambientT * 0.03, 23.7) * 26;
+    weather.f.options.y = g.player.y + 14 + noise.perlin2(9.2, ambientT * 0.03) * 10;
+    weather.f.draw(frame, "front");
+  } else if (weather.f) {
+    weather.f.stop();
+    weather.f = null;
+    weatherIdx = -1;
+  }
 
   // 合成 → canvas
   composite(frame, img.data, BG);
   ctx.putImageData(img, 0, 0);
 }
 
+// 天候の巡回順（軽いもの中心。fog/aurora/clouds/blizzard は全面被覆や負荷のため不採用）
+const WEATHERS = [FX.storm, FX.rain, FX.snow, FX.cherryBlossoms, FX.fallingLeaves, FX.godRays];
+let weather = { f: null };
+let weatherIdx = -1;
+let ambientT = 0;
+
 /** 環境エフェクトを時間進行（playing/levelup/pause 全状態で main から毎フレーム呼ぶ） */
 export function updateAmbient(dt) {
+  ambientT += dt;
   if (flies.f) flies.f.update(dt);
+  if (weather.f) weather.f.update(dt);
 }
 
-/** 再スタート時に環境をリセット */
+/** 再スタート時に環境をリセット（地面タイルのシードも引き直す） */
 export function resetAmbient() {
   flies = { f: null, ax: 0, ay: 0 };
+  if (weather.f) weather.f.stop();
+  weather = { f: null };
+  weatherIdx = -1;
+  ambientT = 0;
+  groundSeed = (Math.random() * 65536) | 0;
+  groundTile = null;
   frame = null; img = null;
 }

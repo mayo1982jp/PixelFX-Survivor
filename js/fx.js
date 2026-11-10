@@ -32,6 +32,43 @@ import * as damageNumber from "../vendor/pixelfx/fx/ui/damage-number.js";
 import * as critNumber from "../vendor/pixelfx/fx/ui/crit-number.js";
 import * as confetti from "../vendor/pixelfx/fx/ui/confetti.js";
 import * as fireflies from "../vendor/pixelfx/fx/weather/fireflies.js";
+// ---- OSS拡張（pixelfx 本家 244 エフェクト版へ更新し、未使用分を実戦配線） ----
+import * as chainLightning from "../vendor/pixelfx/fx/lightning/chain-lightning.js";
+import * as sparkArc from "../vendor/pixelfx/fx/lightning/spark-arc.js";
+import * as iceShatter from "../vendor/pixelfx/fx/ice/ice-shatter.js";
+import * as iceSpikes from "../vendor/pixelfx/fx/ice/ice-spikes.js";
+import * as frostNova from "../vendor/pixelfx/fx/ice/frost-nova.js";
+import * as meteor from "../vendor/pixelfx/fx/fire/meteor.js";
+import * as fireball from "../vendor/pixelfx/fx/fire/fireball.js";
+import * as flamePillar from "../vendor/pixelfx/fx/fire/flame-pillar.js";
+import * as fireRing from "../vendor/pixelfx/fx/fire/fire-ring.js";
+import * as arcaneMissiles from "../vendor/pixelfx/fx/arcane/arcane-missiles.js";
+import * as magicMissile from "../vendor/pixelfx/fx/projectiles/magic-missile.js";
+import * as energyDisc from "../vendor/pixelfx/fx/projectiles/energy-disc.js";
+import * as holyPillar from "../vendor/pixelfx/fx/holy/holy-pillar.js";
+import * as healAoe from "../vendor/pixelfx/fx/holy/heal-aoe.js";
+import * as bigExplosion from "../vendor/pixelfx/fx/explosions/big-explosion.js";
+import * as implosion from "../vendor/pixelfx/fx/explosions/implosion.js";
+import * as chestOpen from "../vendor/pixelfx/fx/pickups/chest-open.js";
+import * as lootBeam from "../vendor/pixelfx/fx/pickups/loot-beam.js";
+import * as collectBurst from "../vendor/pixelfx/fx/pickups/collect-burst.js";
+import * as levelUpFx from "../vendor/pixelfx/fx/ui/level-up.js";
+import * as comboCounter from "../vendor/pixelfx/fx/ui/combo-counter.js";
+import * as achievement from "../vendor/pixelfx/fx/ui/achievement.js";
+import * as spawnPortal from "../vendor/pixelfx/fx/spawn/spawn-portal.js";
+import * as summonRise from "../vendor/pixelfx/fx/spawn/summon-rise.js";
+import * as soulRise from "../vendor/pixelfx/fx/spawn/soul-rise.js";
+import * as shatterDeath from "../vendor/pixelfx/fx/spawn/shatter-death.js";
+import * as runeCircle from "../vendor/pixelfx/fx/arcane/rune-circle.js";
+import * as magicCircleCast from "../vendor/pixelfx/fx/arcane/magic-circle-cast.js";
+import * as timeStop from "../vendor/pixelfx/fx/arcane/time-stop.js";
+import * as portal from "../vendor/pixelfx/fx/arcane/portal.js";
+import * as rain from "../vendor/pixelfx/fx/weather/rain.js";
+import * as snow from "../vendor/pixelfx/fx/weather/snow.js";
+import * as cherryBlossoms from "../vendor/pixelfx/fx/weather/cherry-blossoms.js";
+import * as fallingLeaves from "../vendor/pixelfx/fx/weather/falling-leaves.js";
+import * as godRays from "../vendor/pixelfx/fx/weather/god-rays.js";
+import * as storm from "../vendor/pixelfx/fx/weather/storm.js";
 
 // ゲームで使うエフェクトの一覧（敵の見た目・武器・拾い物・UI演出は全部 pixelfx）
 export const FX = {
@@ -40,6 +77,14 @@ export const FX = {
   plasmaShot, hitSpark, zapHit, lightningStrike, snowflakeBurst, spiritFlame,
   smite, manaBurst, starFall, poof, plasmaExplosion,
   gemSpin, coinSpin, heartPickup, damageNumber, critNumber, confetti, fireflies,
+  // OSS拡張分（配線先は doc.md の「pixelfx 配線マップ」参照）
+  chainLightning, sparkArc, iceShatter, iceSpikes, frostNova,
+  meteor, fireball, flamePillar, fireRing, arcaneMissiles, magicMissile, energyDisc,
+  holyPillar, healAoe, bigExplosion, implosion,
+  chestOpen, lootBeam, collectBurst, levelUpFx, comboCounter, achievement,
+  spawnPortal, summonRise, soulRise, shatterDeath,
+  runeCircle, magicCircleCast, timeStop, portal,
+  rain, snow, cherryBlossoms, fallingLeaves, godRays, storm,
 };
 
 // 色だけ変えたい時のための差し色パレット（resolveOptions が本家の長さへ再サンプルしてくれる）

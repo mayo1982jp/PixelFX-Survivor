@@ -320,3 +320,6 @@ body.touch .shopItem button.sbuy { min-height: 40px; padding: 6px 16px; }
   #dps { font-size: 13px; }
 }
 
+
+/* ♪ BGM トグル（タイトル／ポーズ共通、タッチでも押しやすい大きさ） */
+.bgmBtn { min-height: 44px; min-width: 132px; margin-top: 10px; font-size: clamp(13px, 1.9vmin, 16px); }

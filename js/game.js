@@ -31,6 +31,7 @@ export const DEFAULT_TUNE = Object.freeze({
   hitStopScale: 1, shakeScale: 1,
   dashCd: 2.5, dashTime: 0.18, dashSpeed: 3.2,
   eventFirst: 65, eventInterval: 68,
+  ambientFx: 1,
 });
 export const TUNE = { ...DEFAULT_TUNE };
 
@@ -119,6 +120,7 @@ export function createGame() {
     onLevelUp: null, onEnd: null, onHurt: null,
     // 新機能の状態
     dashT: 0, dashCdT: 0, dashDirX: -1, dashDirY: 0,
+    shatterCd: 0, shrineFx: null,
     relics: [], zones: [], enemyShots: [], shrine: null,
     eventT: TUNE.eventFirst, curseSwarmT: 0, vacuumT: 20,
     bossRef: null, endless: false, wonOnce: false, banked: false,
@@ -151,6 +153,7 @@ export function createGame() {
     g.runSpdMult = g.curse.includes("curseSpd") ? 1.2 : 1;
     g.runEliteRateMult = g.curse.includes("curseElite") ? 2 : 1;
     g.dashT = 0; g.dashCdT = 0; g.dashDirX = -1; g.dashDirY = 0;
+    g.shatterCd = 0; g.shrineFx = null;
     g.relics = []; g.zones = []; g.enemyShots = []; g.shrine = null;
     g.eventT = TUNE.eventFirst; g.curseSwarmT = 0; g.vacuumT = 20;
     g.bossRef = null; g.endless = false; g.wonOnce = false; g.banked = false;
@@ -200,9 +203,9 @@ export function createGame() {
   };
   g.forEachEnemy = (fn) => { for (const e of g.enemies) fn(e); };
 
-  g.addProjectile = (x, y, angle, speed, life, dmg, pierce) => {
+  g.addProjectile = (x, y, angle, speed, life, dmg, pierce, mod) => {
     if (g.projectiles.length > 26) return;
-    const f = createFx(FX.plasmaShot, { x, y, angle, size: 5 + Math.min(4, dmg / 6) });
+    const f = createFx(mod || FX.plasmaShot, { x, y, angle, size: 5 + Math.min(4, dmg / 6) });
     g.projectiles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life, dmg, pierce, hit: new Set(), f });
   };
 
@@ -238,7 +241,9 @@ export function createGame() {
       if (d < bd) { bd = d; best = e; }
     }
     if (best) {
-      g.fxTop.spawn(FX.zapHit, best.x, best.y - 10, { seed: g.rseed() });
+      // 連鎖の見た目：起点から対象方向へ chain-lightning、着弾点に spark-arc
+      g.fxTop.spawn(FX.chainLightning, x, y - 12, { seed: g.rseed(), flip: best.x < x });
+      g.fxTop.spawn(FX.sparkArc, best.x, best.y - 10, { seed: g.rseed() });
       g.damageEnemy(best, dmg, { kind: "bolt" });
     }
     return best;
@@ -249,6 +254,11 @@ export function createGame() {
     const crit = Math.random() < g.player.stats.crit;
     // シナジー「氷結粉砕」：減速中の敵は雷（kind: bolt）から +50% ダメージ
     const synergy = (e.slow > 0 && opt.kind === "bolt") ? 1.5 : 1;
+    if (synergy > 1 && (g.shatterCd || 0) <= 0) { // 粉砕の見た目（連発時は 0.25 秒に1回まで）
+      g.shatterCd = 0.25;
+      g.fxTop.spawn(FX.iceShatter, e.x, e.y - 8, { seed: g.rseed() });
+      if (Math.random() < 0.35) g.fxTop.spawn(FX.iceSpikes, e.x, e.y, { seed: g.rseed() });
+    }
     const dmg = raw * g.player.stats.dmgMult * (crit ? 2.5 : 1) * synergy;
     e.hp -= dmg;
     e.flash = 0.12;
@@ -276,8 +286,11 @@ export function createGame() {
     }
     // クラゲは倒れると鈍足の泡ゾーンを残す
     if (e.type.id === "jelly") g.zones.push({ x: e.x, y: e.y, r: 22, t: 4, kind: "slow" });
-    // 宝箱イベントの精鋭は宝箱を落とす
-    if (e.chestElite) g.spawnPickup(e.x, e.y, "chest", 0);
+    // 宝箱イベントの精鋭は宝箱を落とす（落下地点に光柱を立てて見つけやすくする）
+    if (e.chestElite) {
+      g.spawnPickup(e.x, e.y, "chest", 0);
+      g.fxTop.spawn(FX.lootBeam, e.x, e.y - 10, { seed: g.rseed(), palette: PAL.xpGold });
+    }
     // レリック：残響の鈴（10キル落雷）／吸血の牙（50キル回復）
     if (g.relics.length) {
       g.relicKills++;
@@ -292,13 +305,24 @@ export function createGame() {
         g.player.hp = Math.min(g.player.maxHp, g.player.hp + 5);
       }
     }
-    if (e.elite || e.type.id === "skull") {
+    if (e.boss) { // ボス撃破は最大級の爆発＋粉砕
+      g.fxTop.spawn(FX.bigExplosion, e.x, e.y - 14, { seed: g.rseed(), light: 0.9 });
+      g.fxTop.spawn(FX.shatterDeath, e.x, e.y - 10, { seed: g.rseed() });
+      g.addShake(5); g.punch(0.08, { force: true, cool: 0.25 }); sfx.elite();
+    } else if (e.elite || e.type.id === "skull") {
       g.fxTop.spawn(FX.plasmaExplosion, e.x, e.y - 14, { seed: g.rseed(), light: 0.8 });
+      if (e.type.id === "skull") g.fxTop.spawn(FX.shatterDeath, e.x, e.y - 10, { seed: g.rseed() });
       g.addShake(3); g.punch(0.08, { force: true, cool: 0.25 }); sfx.elite();
+    } else if (e.type.id === "ghost") { // 幽霊は魂が昇る
+      g.fxTop.spawn(FX.soulRise, e.x, e.y - 6, { seed: g.rseed(), light: 0.6 });
+      sfx.kill();
     } else {
       g.fxTop.spawn(FX.poof, e.x, e.y, { seed: g.rseed(), light: 0.5 });
       sfx.kill();
     }
+    // キルマイルストーン演出（100キルごとコンボ表示、500キルで達成バッジ）
+    if (g.kills % 500 === 0) g.fxTop.spawn(FX.achievement, g.player.x, g.player.y - 34, { seed: g.rseed(), title: `${g.kills} KILLS`, text: `${g.kills} KILLS` });
+    else if (g.kills % 100 === 0) g.fxTop.spawn(FX.comboCounter, g.player.x, g.player.y - 30, { seed: g.rseed(), count: g.kills, label: "KILLS" });
     // XPジェム（gem-spin を再配色で使っている）
     const n = e.elite ? 4 : 1;
     for (let k = 0; k < n; k++) {
@@ -345,6 +369,9 @@ export function createGame() {
     if (g.curseSwarmT > 0 && !e.coinBonus) e.coinBonus = 3;
     g.enemies.push(e);
     if (e.boss) g.bossRef = e;
+    // ボスと宝箱の精鋭はポータルから現れる（通常湧きは従来どおり即出現でバランス不変）
+    if (opt.boss) g.fxWorld.spawn(FX.portal, x, y - 10, { seed: g.rseed(), palette: PAL.elite });
+    else if (opt.chest) g.fxWorld.spawn(FX.spawnPortal, x, y - 10, { seed: g.rseed(), palette: PAL.xpGold });
     return e;
   }
   g.spawnEnemy = spawnEnemy;
@@ -382,6 +409,8 @@ export function createGame() {
       if (!g.shrine) {
         const a = Math.random() * Math.PI * 2;
         g.shrine = { x: p.x + Math.cos(a) * 72, y: p.y + Math.sin(a) * 72, r: 28, progress: 0, need: 10, done: false };
+        // 神殿の足元にルーンサークルを回し続ける（達成時に stop する）
+        g.shrineFx = g.fxWorld.spawn(FX.runeCircle, g.shrine.x, g.shrine.y, { seed: g.rseed(), palette: PAL.xpGold });
       }
       if (g.onBanner) g.onBanner("XP神殿出現！ サークル内にとどまれ（10秒）");
     } else {
@@ -402,6 +431,7 @@ export function createGame() {
   g.update = function update(dt, input) {
     if (!g.over) g.time += dt;
     if (g.stopCool > 0) g.stopCool -= dt;
+    if (g.shatterCd > 0) g.shatterCd -= dt;
     const p = g.player;
 
     // --- プレイヤー移動（加速・減速に Ease をかける）
@@ -425,7 +455,7 @@ export function createGame() {
       g.dashDirX = p.dirX; // 入力中はその方向、無入力時は最後に向いた方向
       g.dashDirY = p.dirY;
       g.fxTop.spawn(FX.manaBurst, p.x, p.y - 10, { seed: g.rseed() });
-      sfx.zap();
+      sfx.dash();
       if (hasRelic(g, "fireTrail")) g.zones.push({ x: p.x, y: p.y, r: 16, t: 1.2, kind: "burn", dps: 9 });
     }
     if (g.dashT > 0) {
@@ -477,6 +507,9 @@ export function createGame() {
           for (let k = 0; k < 5; k++) g.spawnPickup(sh.x + (Math.random() - 0.5) * 24, sh.y + (Math.random() - 0.5) * 16, "xp", 7);
           for (let k = 0; k < 3; k++) g.spawnPickup(sh.x + (Math.random() - 0.5) * 24, sh.y + (Math.random() - 0.5) * 16, "coin", 8);
           g.fxTop.spawn(FX.confetti, sh.x, sh.y - 10, { seed: g.rseed() });
+          g.fxTop.spawn(FX.healAoe, sh.x, sh.y - 6, { seed: g.rseed() }); // 達成の祝福
+          g.fxTop.spawn(FX.collectBurst, sh.x, sh.y - 10, { seed: g.rseed() });
+          if (g.shrineFx) { g.shrineFx.stop(); g.shrineFx = null; }
           if (g.onBanner) g.onBanner("神殿達成！ 報酬を獲得");
           g.shrine = null;
         }
@@ -499,7 +532,11 @@ export function createGame() {
     // レリック「磁心」：20秒ごとに全ピックアップを吸い寄せる
     if (hasRelic(g, "magnetCore")) {
       g.vacuumT -= dt;
-      if (g.vacuumT <= 0) { g.vacuumT = 20; for (const it of g.pickups) it.vacuum = true; }
+      if (g.vacuumT <= 0) {
+        g.vacuumT = 20;
+        for (const it of g.pickups) it.vacuum = true;
+        g.fxTop.spawn(FX.collectBurst, p.x, p.y - 10, { seed: g.rseed() }); // 吸引の合図
+      }
     }
     g.swarmT -= dt;
     if (g.swarmT <= 0) { // 群れラッシュ：同じ方向からまとめて湧く
@@ -575,6 +612,11 @@ export function createGame() {
           if (e.boss) {
             const phase2 = e.hp <= e.maxHp * 0.5;
             e.bossPhase = phase2 ? 2 : 1;
+            if (phase2 && !e.phase2Fx) { // フェーズ移行の瞬間だけ時止め＋ポータル演出
+              e.phase2Fx = true;
+              g.fxTop.spawn(FX.timeStop, e.x, e.y - 12, { seed: g.rseed() });
+              g.fxWorld.spawn(FX.portal, e.x, e.y - 10, { seed: g.rseed(), palette: PAL.elite });
+            }
             // 召喚：フェーズ1は6秒ごと、フェーズ2は4.5秒ごとに子分3〜5体
             e.summonT -= dt;
             if (e.summonT <= 0 && g.enemies.length < TUNE.maxEnemies) {
@@ -585,6 +627,7 @@ export function createGame() {
                 const t = pool.length ? pool[(Math.random() * pool.length) | 0] : TYPES[0];
                 spawnEnemy(t, e.x + (Math.random() - 0.5) * 36, e.y + (Math.random() - 0.5) * 24, false);
               }
+              g.fxTop.spawn(FX.summonRise, e.x, e.y - 10, { seed: g.rseed() });
               g.fxTop.spawn(FX.manaBurst, e.x, e.y - 14, { seed: g.rseed() });
             }
             if (phase2) {
@@ -596,7 +639,8 @@ export function createGame() {
                 e.burstT = 5;
                 for (let k = 0; k < 8; k++) {
                   const a = (k / 8) * Math.PI * 2 + e.bt;
-                  const f = createFx(FX.plasmaShot, { x: e.x, y: e.y - 10, angle: a, size: 5, palette: PAL.fire, seed: g.rseed() });
+                  // フェーズ2の放射弾は energy-disc の見た目で通常弾と区別する（数値は不変）
+                  const f = createFx(phase2 ? FX.energyDisc : FX.plasmaShot, { x: e.x, y: e.y - 10, angle: a, size: 5, palette: PAL.fire, seed: g.rseed() });
                   g.enemyShots.push({ x: e.x, y: e.y - 10, vx: Math.cos(a) * 46, vy: Math.sin(a) * 46, life: 2.6, dmg: e.dmg * 0.8, f });
                 }
                 sfx.zap();
@@ -709,6 +753,8 @@ export function createGame() {
         }
         else if (it.kind === "coin") { g.coins += it.value; sfx.coin(); }
         else if (it.kind === "chest") {
+          g.fxTop.spawn(FX.chestOpen, p.x, p.y - 8, { seed: g.rseed(), palette: PAL.xpGold }); // 宝箱が開く
+          g.fxTop.spawn(FX.lootBeam, p.x, p.y - 12, { seed: g.rseed(), palette: PAL.xpGold });
           g.fxTop.spawn(FX.confetti, p.x, p.y - 16, { seed: g.rseed() });
           sfx.level();
           if (g.onChest) g.onChest();
@@ -737,6 +783,8 @@ export function createGame() {
   g.triggerVictory = () => {
     g.wonOnce = true; g.over = true; g.won = true;
     g.hitStop = 0; g.stopCool = 0;
+    // 夜明けの瞬間：周囲の闇が吸い込まれるインプロージョン
+    if (g.player) g.fxTop.spawn(FX.implosion, g.player.x, g.player.y - 10, { seed: g.rseed() });
     g.lastBest = recordBest({ time: g.time, level: g.level, kills: g.kills });
     sfx.win();
     if (g.onEnd) g.onEnd(true);

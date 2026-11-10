@@ -5,6 +5,7 @@ import { render, updateAmbient, resetAmbient, resetFrame } from "./render.js";
 import { makeChoices, applyChoice, makeRelicChoices, applyRelicChoice } from "./weapons.js";
 import { FX } from "./fx.js";
 import { initAudio, sfx } from "./sfx.js";
+import { music } from "./music.js";
 import * as meta from "./meta.js";
 import * as preview from "./preview.js";
 import * as ui from "./ui.js";
@@ -16,6 +17,7 @@ ctx.imageSmoothingEnabled = false;
 
 const game = createGame();
 window.game = game; // デバッグ用フック（コンソールから状態を覗ける）
+window.__ps = { game, music }; // 検証用：BGM 状態などを外から確認できる
 initDebug(game); // レベルデザイン調整パネル（F1 / T でオンオフ）
 let state = "title"; // title | playing | levelup | pause | end
 let choices = [];
@@ -196,9 +198,14 @@ game.onLevelUp = () => {
   state = "levelup";
   sfx.level();
   game.fxTop.spawn(FX.confetti, game.player.x, game.player.y - 20, { seed: game.rseed() });
+  game.fxTop.spawn(FX.levelUpFx, game.player.x, game.player.y - 16, { seed: game.rseed() }); // pixelfx の UI レベルアップ演出
   openCards();
 };
-game.onEnd = (win) => { clearStick(); state = "end"; ui.showEnd(win, game); ui.renderBest(); };
+game.onEnd = (win) => {
+  clearStick(); state = "end";
+  if (!win) music.stop(); // 敗北で BGM 停止（勝利時は流れ続け、エンドレスへ繋ぐ）
+  ui.showEnd(win, game); ui.renderBest();
+};
 game.onBanner = (text) => ui.showBanner(text);
 game.onChest = () => {
   if (state !== "playing") return;
@@ -223,20 +230,26 @@ function choose(i) {
   if (cardMode === "relic") {
     applyRelicChoice(game, choices[i]);
     sfx.select();
+    sfx.relic(); // レリック取得の専用音（ZzFX）
     if (game.pendingLevels > 0) openCards("level"); // 宝箱の直後にレベルアップが控えていれば続けて出す
     else { ui.hideCards(); preview.stop(); state = "playing"; }
     return;
   }
-  applyChoice(game, choices[i]);
+  const chosen = choices[i];
+  applyChoice(game, chosen);
   game.pendingLevels--;
   sfx.select();
+  if (chosen.kind === "evolve") { // 進化の瞬間：魔法陣＋ファンファーレ
+    sfx.evolve();
+    game.fxTop.spawn(FX.magicCircleCast, game.player.x, game.player.y - 8, { seed: game.rseed() });
+  }
   if (game.pendingLevels > 0) openCards(); // 連続レベルアップは次の 3 択へ
   else { ui.hideCards(); preview.stop(); state = "playing"; }
 }
 
 function togglePause() {
-  if (state === "playing") { clearStick(); state = "pause"; ui.showPause(true); }
-  else if (state === "pause") { ui.showPause(false); state = "playing"; }
+  if (state === "playing") { clearStick(); state = "pause"; music.stop(); ui.showPause(true); }
+  else if (state === "pause") { ui.showPause(false); state = "playing"; music.start(); }
 }
 
 // ---- 永続強化ショップ（タイトル画面に常設。画面遷移なしでクリック購入できる） ------
@@ -264,10 +277,12 @@ function continueEndless() {
   ui.hideEnd();
   game.continueEndless();
   state = "playing";
+  music.start();
 }
 
 function start() {
   initAudio();
+  music.start(); // BGM 開始（有効設定のときだけ。初回はレンダリングに約1秒）
   clearStick();
   game.bankRun(); // 前ラン（勝利画面）未入金分があれば一度だけ入金してからリセット
   game.reset(); // meta.js の購入レベルが初期ステータスへ反映される
@@ -276,6 +291,24 @@ function start() {
   ui.hideCards(); ui.hideEnd(); ui.showPause(false); ui.showTitle(false); ui.showHud(true);
   state = "playing";
 }
+
+// ---- ♪ BGM トグル（タイトル／ポーズ両方。設定は localStorage に保存される） --------
+function syncBgmButtons() {
+  const label = music.enabled ? "♪ BGM ON" : "♪ BGM OFF";
+  for (const id of ["bgmBtnTitle", "bgmBtnPause"]) {
+    const b = document.getElementById(id);
+    if (b) b.textContent = label;
+  }
+}
+function onBgmToggle() {
+  initAudio();
+  const on = music.toggle();
+  if (on) music.start(); // タイトルで ON にしたらその場で鳴らし始める
+  syncBgmButtons();
+}
+document.getElementById("bgmBtnTitle").onclick = onBgmToggle;
+document.getElementById("bgmBtnPause").onclick = onBgmToggle;
+syncBgmButtons();
 
 document.getElementById("startBtn").onclick = start;
 document.getElementById("retryBtn").onclick = start;
