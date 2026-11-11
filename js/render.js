@@ -4,7 +4,7 @@
 // 敵・弾・拾い物・武器演出はすべて pixelfx のエフェクト。
 import { createFrame, clearFrame, composite, painterFor, createFx, hex, stockActor, HERO, HERO_PAL, WHITE } from "../vendor/pixelfx/core/index.js";
 import { FX } from "./fx.js";
-import { WITCH, WITCH_PAL } from "./witch.js";
+import { WITCH, stylePal } from "./witch.js";
 import { VW, VH, TUNE } from "./game.js";
 import { noise } from "../vendor/noisejs/noise.js";
 
@@ -113,6 +113,16 @@ export function render(g, ctx) {
       pz.place(z.x, z.y);
       if (z.kind === "slow") pz.glow(0, 0, z.r, ICE, 0.16);
       else if (z.kind === "burn") pz.glow(0, 0, z.r, GLOW_WARM, 0.22);
+      else if (z.kind === "telegraph") pz.glow(0, 0, z.r, hex("#ff4030"), 0.28); // 落雷の予告範囲
+    }
+    // ラスボスのビーム予告：delayed の beam を赤い点線で描く
+    for (const dl of g.delayed || []) {
+      if (dl.kind !== "beam") continue;
+      const ca = Math.cos(dl.angle), sa = Math.sin(dl.angle);
+      for (let s = 12; s < dl.len; s += 14) {
+        pz.place(dl.x + ca * s, dl.y + sa * s);
+        pz.glow(0, 0, 5, hex("#ff3040"), 0.35);
+      }
     }
     if (g.shrine && !g.shrine.done) {
       const sh = g.shrine;
@@ -126,6 +136,7 @@ export function render(g, ctx) {
   const items = [];
   for (const e of g.enemies) items.push({ y: e.y, e });
   for (const it of g.pickups) items.push({ y: it.y, it });
+  for (const pr of g.props || []) items.push({ y: pr.y, pr });
   items.push({ y: g.player.y, pl: true });
   items.sort((a, b) => a.y - b.y);
 
@@ -138,7 +149,8 @@ export function render(g, ctx) {
         p2.place(pl.x, pl.y, pl.flip);
         const bob = pl.moving ? -(Math.floor(pl.bob) % 2) : 0;
         // 魔女スプライト（18x24）を足元原点で描画。左端に杖があるので箱の中心≈列8を x=-8 で当てる
-        p2.sprite(WITCH, WITCH_PAL, -8, -23 + bob, { a: 1 });
+        // パレットは選択中スタイルのもの（タイトルで切替・localStorage 保存）
+        p2.sprite(WITCH, stylePal(g.styleId), -8, -23 + bob, { a: 1 });
       }
     } else if (n.e) {
       const e = n.e;
@@ -156,6 +168,27 @@ export function render(g, ctx) {
         p2.rect(e.x - w / 2, by, w, 3, hex("#120a14"), 1);
         p2.rect(e.x - w / 2 + 1, by + 1, Math.round((w - 2) * hp), 1, hex(hp > 0.4 ? "#e0401c" : "#ffde5e"), 1);
       }
+    } else if (n.pr) {
+      // 破壊可能オブジェクト（燭台／クリスタル／ツボ）を小さな図形で描く
+      const pr = n.pr, p2 = painterFor(frame);
+      p2.place(pr.x, pr.y);
+      const c = pr.kind === "candle" ? hex("#ffb84d") : pr.kind === "crystal" ? hex("#7ae0ff") : hex("#c98a5a");
+      if (pr.kind === "candle") {
+        p2.px(0, -9, hex("#ffe98a")); p2.px(0, -8, hex("#ffe98a"));
+        p2.px(-1, -7, c); p2.px(0, -7, c); p2.px(1, -7, c);
+        p2.px(-1, -3, c); p2.px(0, -3, c); p2.px(1, -3, c); p2.px(0, -5, c); p2.px(0, -4, c); p2.px(0, -6, c);
+        p2.glow(0, -8, 10, GLOW_WARM, 0.20);
+      } else if (pr.kind === "crystal") {
+        p2.px(0, -10, c); p2.px(-1, -8, c); p2.px(0, -8, c); p2.px(1, -8, c);
+        p2.px(-2, -5, c); p2.px(-1, -5, c); p2.px(0, -5, c); p2.px(1, -5, c); p2.px(2, -5, c);
+        p2.px(-1, -3, c); p2.px(0, -3, c); p2.px(1, -3, c);
+        p2.glow(0, -6, 11, ICE, 0.18);
+      } else {
+        p2.px(-2, -7, c); p2.px(-1, -7, c); p2.px(0, -7, c); p2.px(1, -7, c); p2.px(2, -7, c);
+        p2.px(-3, -5, c); p2.px(-2, -5, c); p2.px(-1, -5, c); p2.px(0, -5, c); p2.px(1, -5, c); p2.px(2, -5, c); p2.px(3, -5, c);
+        p2.px(-2, -3, c); p2.px(-1, -3, c); p2.px(0, -3, c); p2.px(1, -3, c); p2.px(2, -3, c);
+      }
+      if (pr.flash > 0) p2.glow(0, -5, 9, WHITE, 0.5);
     } else {
       n.it.f.draw(frame);
     }
@@ -192,7 +225,8 @@ export function render(g, ctx) {
   // 原点は各エフェクトの中央下（画面中心＝プレイヤー付近）に合わせ、ノイズで漂わせる。
   // draw は "front" のみ（理由は蛍と同じ）。TUNE.ambientFx=0 で無効化できる。
   if (TUNE.ambientFx > 0 && g.player) {
-    const idx = Math.floor(Math.max(0, ambientT) / 60) % WEATHERS.length;
+    // 天候の単一の真実はゲーム側（g.time の60秒周期 = g.weatherId()）。見た目もそれに合わせる
+    const idx = Math.floor(Math.max(0, g.time) / 60) % WEATHERS.length;
     if (idx !== weatherIdx || !weather.f) {
       if (weather.f) weather.f.stop();
       weatherIdx = idx;

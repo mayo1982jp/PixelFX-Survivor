@@ -271,16 +271,22 @@ console.log("=== 6. エンドレス・呪い・ベスト ===");
   const bank0 = meta.getBank();
   g.time = TUNE.winTime - 0.01;
   step(g, 5);
-  ok("300秒到達で勝利状態（wonOnce / over / 未入金）", g.wonOnce && g.over && g.won && !g.banked);
+  ok("300秒到達では即勝利せずラスボス戦が始まる", !!g.finalBoss && !g.wonOnce && !g.over && !g.won);
+  ok("ラスボス戦中はタイマーが300で止まる", g.time === TUNE.winTime, `time=${g.time}`);
+  const fb = g.finalBoss.e;
+  fb.hp = 1;
+  g.damageEnemy(fb, 10, { src: "wand" });
+  ok("ラスボス撃破で勝利状態（wonOnce / over / 未入金）", g.wonOnce && g.over && g.won && !g.banked);
   ok("勝利時点ではまだ貯金されない", meta.getBank() === bank0);
   g.continueEndless();
   ok("エンドレス継続でゲームが再開する", g.endless && !g.over);
   step(g, 120);
-  ok("エンドレスでは300秒を超えても終わらない", !g.over && g.time > TUNE.winTime);
+  ok("エンドレスでは300秒を超えても終わらない（ラスボス再発動なし）", !g.over && g.time > TUNE.winTime && !g.finalBoss);
+  const expect = bank0 + g.coins + (g.achPending || 0); // ラン中コイン（ラスボスのドロップ回収分を含む）＋実績ボーナスが一括入金される
   g.finish(false);
-  ok("エンドレス終了時にコインが一度だけ入金される", g.banked && meta.getBank() === bank0 + 37);
+  ok("エンドレス終了時にコイン＋実績ボーナスが一度だけ入金される", g.banked && meta.getBank() === expect, `bank=${meta.getBank()} expect=${expect}`);
   g.bankRun();
-  ok("bankRun の二重入金はない", meta.getBank() === bank0 + 37);
+  ok("bankRun の二重入金はない", meta.getBank() === expect);
   ok("ベスト記録が保存される（生存時間）", meta.getBest().time >= Math.floor(g.time) && !!g.lastBest, `best=${JSON.stringify(meta.getBest())}`);
 }
 {

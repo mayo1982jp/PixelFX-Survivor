@@ -17,6 +17,7 @@
     <div id="clock">00:00</div>
     <div id="killcount">0 KILLS</div>
     <div id="coincount">0 C</div>
+    <div id="weatherInfo">天候：嵐</div>
     <div id="hpwrap"><div id="hpfill"></div><div id="hptext">100/100</div></div>
     <div id="bottomRight">
       <div id="dps">DPS 0.0</div>
@@ -43,8 +44,15 @@
         <div><b>1 / 2 / 3</b> レベルアップ選択</div>
         <div><b>F1 / T</b> レベルデザイン調整パネル ON/OFF</div>
       </div>
-      <p class="goal">夜が明ける 5 分間、群がる魔物から生き延びろ。武器Lv8＋パッシブLv2で進化！</p>
+      <p class="goal">夜が明ける 5 分間、群がる魔物から生き延びろ。武器Lv8＋パッシブLv2で進化！300秒でラスボス戦！</p>
+      <div class="styleBox">
+        <h3>スタイル（衣装）</h3>
+        <div id="styleList"></div>
+      </div>
       <div id="bestLine">BEST 記録なし</div>
+      <div id="dailyBestLine"></div>
+      <button id="dailyBtn" type="button">今日のチャレンジ</button>
+      <button id="achBtn" type="button" class="ghost">実績・図鑑</button>
       <div class="curseBox">
         <h3>呪い（任意・コイン倍率アップ）</h3>
         <div id="curseList"></div>
@@ -65,6 +73,7 @@
     <h2>LEVEL UP!</h2>
     <p class="tip">強化を選択（1 / 2 / 3 キーでも選べます）。宝箱を開けるとレリックの3択になります</p>
     <div id="cards"></div>
+    <div id="cardActions"></div>
   </div>
 
   <!-- ポーズ -->
@@ -80,8 +89,16 @@
     <h2 id="endTitle">YOU DIED</h2>
     <div id="endStats"></div>
     <button id="continueBtn" class="hidden">エンドレスで続ける</button>
+    <button id="copyBtn" class="hidden" type="button">結果をコピー</button>
     <button id="retryBtn">リトライ</button>
     <button id="toTitleBtn" class="ghost">タイトルにもどる（ショップで購入）</button>
+  </div>
+
+  <!-- 実績・図鑑モーダル -->
+  <div id="achModal" class="overlay hidden">
+    <h2>実績・図鑑</h2>
+    <div id="achBody"></div>
+    <button id="achCloseBtn" type="button">閉じる</button>
   </div>
 </div>
 <!-- タッチ用フローティングスティック（移動のみ。攻撃はオート） -->

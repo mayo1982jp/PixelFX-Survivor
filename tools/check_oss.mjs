@@ -25,7 +25,7 @@ const { zzfxM } = await import("../vendor/zzfxm/zzfxm.js");
 // ---- 1. pixelfx レジストリ：全エントリが生成・描画でき、絵が出る -------------------
 console.log("=== FX registry ===");
 const keys = Object.keys(FX);
-ok(keys.length === 66, `レジストリは 66 件（旧31 + 新35）: ${keys.length}`);
+ok(keys.length === 67, `レジストリは 67 件（旧31 + 新35 + ラスボス用 arcaneBeam）: ${keys.length}`);
 let allOk = true, blankOnes = [];
 for (const k of keys) {
   try {
@@ -44,7 +44,7 @@ for (const k of keys) {
     console.log(`    throw at ${k}: ${e.message}`);
   }
 }
-ok(allOk, "全66エントリが例外なく生成・更新・描画できる");
+ok(allOk, "全67エントリが例外なく生成・更新・描画できる");
 ok(blankOnes.length === 0, `全エントリが非空白ピクセルを描く（空白: ${blankOnes.join(",") || "なし"}）`);
 
 // ---- 2. ゲーム内配線の直接トリガ --------------------------------------------------

@@ -323,3 +323,46 @@ body.touch .shopItem button.sbuy { min-height: 40px; padding: 6px 16px; }
 
 /* ♪ BGM トグル（タイトル／ポーズ共通、タッチでも押しやすい大きさ） */
 .bgmBtn { min-height: 44px; min-width: 132px; margin-top: 10px; font-size: clamp(13px, 1.9vmin, 16px); }
+
+/* ---- Gemini改善10件の追加UI ---- */
+#weatherInfo { position: absolute; top: 44px; left: 8px; font-size: 13px; color: #a8d8ff; text-shadow: 1px 1px 0 #000; }
+.styleBox { margin: 8px 0 2px; }
+.styleBox h3 { margin: 4px 0 6px; font-size: 14px; color: #c9a0ff; }
+#styleList { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+.styleBtn {
+  background: #241a3a; color: #e8e0ff; border: 2px solid #4a3670; border-radius: 8px;
+  padding: 6px 10px; font-size: 13px; cursor: pointer; line-height: 1.35; text-align: left;
+}
+.styleBtn span { display: block; font-size: 11px; color: #a894d8; }
+.styleBtn.on { background: #3a2270; color: #ffde5e; box-shadow: 0 0 0 2px #c9a0ff; }
+.styleBtn.on span { color: #e8d8ff; }
+#dailyBestLine { font-size: 12px; color: #8ad8c8; min-height: 1.2em; margin-top: 4px; }
+#dailyBtn { margin-top: 8px; }
+#cardActions { display: flex; gap: 10px; justify-content: center; margin-top: 14px; }
+.cardActBtn {
+  background: #241a3a; color: #e8e0ff; border: 2px solid #4a3670; border-radius: 8px;
+  padding: 8px 14px; font-size: 14px; cursor: pointer; min-height: 40px;
+}
+.cardActBtn:hover:not(:disabled) { background: #3a2270; }
+.cardActBtn:disabled { opacity: .45; cursor: default; }
+.dmgChart { margin-top: 12px; text-align: left; }
+.dmgChart h4 { margin: 0 0 6px; font-size: 14px; color: #ffde5e; }
+.dmgRow { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 12px; }
+.dmgName { width: 92px; text-align: right; color: #e8e0ff; }
+.dmgBarWrap { flex: 1; height: 10px; background: #171020; border: 1px solid #4a3670; border-radius: 5px; overflow: hidden; }
+.dmgBar { height: 100%; background: linear-gradient(90deg, #7c4ac2, #ff8a2a); }
+.dmgMeta { width: 118px; color: #a894d8; }
+#achModal { z-index: 40; }
+#achBody { max-height: 62vh; overflow-y: auto; text-align: left; width: min(560px, 92vw); }
+#achBody h3 { color: #ffde5e; margin: 12px 0 6px; font-size: 15px; }
+.achRow, .enemyRow, .evoRow { font-size: 13px; padding: 4px 6px; border-bottom: 1px solid #2c2144; color: #e8e0ff; }
+.achRow.locked { color: #6a5a8a; }
+.achRow .bonus { color: #ffde5e; }
+.enemyRow span, .evoRow span { color: #a894d8; }
+.achItem, .dexItem, .evoItem { display: flex; gap: 8px; align-items: baseline; font-size: 13px; padding: 4px 6px; border-bottom: 1px solid #2c2144; color: #e8e0ff; }
+.achItem:not(.got) { color: #6a5a8a; }
+.achBonus { color: #ffde5e; margin-left: auto; }
+.achDesc, .dexHint, .evoRecipe { color: #a894d8; font-size: 12px; }
+.dexHead { display: flex; gap: 10px; }
+.dexKills { color: #8ad8c8; }
+.evoName { min-width: 110px; }

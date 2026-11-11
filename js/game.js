@@ -3,8 +3,13 @@
 import { createFx } from "../vendor/pixelfx/core/index.js";
 import { FX, PAL, FxLayer } from "./fx.js";
 import { sfx } from "./sfx.js";
-import { WEAPONS, hasRelic } from "./weapons.js";
-import { getLevel, addBank, getCurses, curseCoinMult, recordBest } from "./meta.js";
+import { WEAPONS, RELICS, hasRelic, totalDps } from "./weapons.js";
+import { getLevel, addBank, getCurses, curseCoinMult, recordBest, ACHIEVEMENTS, unlockAch as metaUnlockAch, addEnemyKill, getAch, flushAch } from "./meta.js";
+import { STYLES, loadStyleId } from "./witch.js";
+
+// 天候の巡回（render.js の見た目と同じ順序・60秒周期をゲームプレイ側でも使う）
+export const WEATHER_ORDER = ["storm", "rain", "snow", "cherry", "leaves", "godrays"];
+export const WEATHER_NAMES = { storm: "嵐", rain: "雨", snow: "雪", cherry: "桜", leaves: "落葉", godrays: "木漏れ日" };
 
 export let VW = 320, VH = 180; // 論理解像度（画面アスペクトに合わせて動的に再計算）
 let SPAWN_R = 224;             // 湧きリング半径（画面の対角半分＋余裕。setViewport で更新）
@@ -127,11 +132,61 @@ export function createGame() {
     curse: [], runHpMult: 1, runSpdMult: 1, runEliteRateMult: 1,
     relicKills: 0, lastBest: null,
     onBanner: null, onChest: null,
+    // Gemini改善10件の状態
+    finalBoss: null, arenaFx: null, pendingFinalBossDown: false, finalBossDone: false,
+    props: [], propCells: new Set(), propT: 0,
+    dmgStats: {}, rerolls: 2, banishes: 2, banished: [],
+    justCdT: 0, justBuffT: 0, justCount: 0, dashUsed: false, onJustDodge: null,
+    stormT: 8, achPending: 0, runButterflies: 0, ach400: false,
+    daily: null, weaponsOnly: null, xpMult: 1, dashCdMult: 1, dailyTypes: null,
+    styleId: "violet", burnMult: 1, burnSrc: "flame",
   };
 
   g.rseed = () => (g.seed = (g.seed * 16807 + 11) % 2147483647) % 65521;
   g.addShake = (a) => { a *= TUNE.shakeScale; g.shake = Math.min(8, Math.max(g.shake, a)); };
   g.passiveCount = () => Object.keys(g.passives).length;
+
+  /** 現在の天候（g.time の60秒周期。render の見た目と単一の真実を共有する） */
+  g.weatherId = () => WEATHER_ORDER[Math.floor(Math.max(0, g.time) / 60) % WEATHER_ORDER.length];
+  g.weatherName = () => WEATHER_NAMES[g.weatherId()];
+
+  /** ダメージ源別の集計（リザルト内訳用）。kills は killEnemy 側で lastSrc を使って数える */
+  g.trackDamage = (src, dmg, killed) => {
+    const key = src || "other";
+    let rec = g.dmgStats[key];
+    if (!rec) { rec = { dmg: 0, kills: 0 }; g.dmgStats[key] = rec; }
+    if (dmg > 0) rec.dmg += dmg;
+    if (killed) rec.kills += 1;
+  };
+
+  /** 実績解放：ボーナスは achPending に積み、bankRun で一度だけ入金する */
+  g.unlockAch = (id) => {
+    const bonus = metaUnlockAch(id);
+    if (bonus > 0) {
+      g.achPending = (g.achPending || 0) + bonus;
+      const a = ACHIEVEMENTS[id];
+      if (a && g.onBanner) g.onBanner(`実績解放「${a.name}」 +${bonus}C`);
+      if (g.player) g.fxTop.spawn(FX.achievement, g.player.x, g.player.y - 34, { seed: g.rseed(), title: a ? a.name : id, text: a ? a.name : id });
+    }
+    return bonus;
+  };
+
+  /** ジャスト回避：ダッシュ無敵中に本来当たる攻撃をすり抜けたときに呼ぶ（内部CD 1秒） */
+  g.tryJustDodge = () => {
+    if (g.justCdT > 0 || g.dashT <= 0) return false;
+    const p = g.player;
+    g.justCdT = 1.0;
+    g.justBuffT = 3.0;
+    g.justCount += 1;
+    g.dashCdT *= 0.5; // 残りクールダウンを半分に
+    for (let i = 0; i < 3; i++)
+      g.spawnPickup(p.x + (Math.random() - 0.5) * 12, p.y + (Math.random() - 0.5) * 10, "xp", 1);
+    g.fxTop.spawn(FX.manaBurst, p.x, p.y - 8, { seed: g.rseed() });
+    g.fxText.spawn(FX.critNumber, p.x, p.y - 26, { text: "JUST!", seed: g.rseed() });
+    sfx.just();
+    if (g.onJustDodge) g.onJustDodge();
+    return true;
+  };
 
   /** ヒットストップ要求。main が g.update を sec 秒分止める間、世界を完全に凍らせる。
    *  多段ヒットで連続凍結しコマ落ちしないようクールダウンで間引く（force はクリティカル・死亡・被弾など強い一撃） */
@@ -143,42 +198,69 @@ export function createGame() {
   };
 
   // ---- 初期化 ---------------------------------------------------------------
-  g.reset = function reset() {
+  g.reset = function reset(daily = null) {
     g.time = 0; g.kills = 0; g.over = false; g.won = false;
     g.level = 1; g.xp = 0; g.xpNeed = Math.floor(TUNE.xpBase); g.pendingLevels = 0;
     g.hitStop = 0; g.stopCool = 0;
+    // デイリー（g.daily）の時は永続ショップ強化も呪いも無効（公平のため）。L() で丸める
+    g.daily = daily || null;
+    const ds = daily ? daily.summary || null : null;
+    const L = (id) => (g.daily ? 0 : getLevel(id));
     // 呪い（タイトルで選択）をラン限定倍率へ反映。TUNE 本体は書き換えない
-    g.curse = getCurses();
+    g.curse = g.daily ? [] : getCurses();
     g.runHpMult = g.curse.includes("curseHp") ? 1.5 : 1;
     g.runSpdMult = g.curse.includes("curseSpd") ? 1.2 : 1;
-    g.runEliteRateMult = g.curse.includes("curseElite") ? 2 : 1;
+    g.runEliteRateMult = (g.curse.includes("curseElite") ? 2 : 1) * (ds && ds.eliteMult ? ds.eliteMult : 1);
     g.dashT = 0; g.dashCdT = 0; g.dashDirX = -1; g.dashDirY = 0;
     g.shatterCd = 0; g.shrineFx = null;
     g.relics = []; g.zones = []; g.enemyShots = []; g.shrine = null;
     g.eventT = TUNE.eventFirst; g.curseSwarmT = 0; g.vacuumT = 20;
     g.bossRef = null; g.endless = false; g.wonOnce = false; g.banked = false;
     g.relicKills = 0; g.lastBest = null;
+    // Gemini改善10件のラン初期化
+    g.dmgStats = {}; g.rerolls = 2; g.banishes = 2; g.banished = [];
+    g.justCdT = 0; g.justBuffT = 0; g.justCount = 0; g.dashUsed = false;
+    g.stormT = 8; g.achPending = 0; g.runButterflies = 0; g.ach400 = false;
+    g.xpMult = ds && ds.xpMult ? ds.xpMult : 1;
+    g.dashCdMult = ds && ds.dashCdMult ? ds.dashCdMult : 1;
+    g.weaponsOnly = ds && ds.weaponsOnly ? ds.weaponsOnly : null;
+    g.dailyTypes = ds && ds.enemyTypes ? ds.enemyTypes : null;
+    if (g.arenaFx) { g.arenaFx.stop(); g.arenaFx = null; }
+    g.finalBoss = null; g.pendingFinalBossDown = false; g.finalBossDone = false;
+    g.props = []; g.propCells = new Set(); g.propT = 0;
+    // スタイル（衣装）＝初期武器と特性
+    const style = STYLES.find((s) => s.id === loadStyleId()) || STYLES[0];
+    g.styleId = style.id;
+    const tr = style.trait || {}; // witch.js の特性スキーマ（burnMult/spdMult は絶対倍率、critAdd/regenAdd/hpAdd は加算）
+    g.burnMult = tr.burnMult || 1;
     // 永続強化（ショップ購入レベル）を初期ステータスへ反映
-    const maxHp = TUNE.playerMaxHp + 20 * getLevel("vitality");
-    g.coins = 0; g.coinMult = (1 + 0.2 * getLevel("greed")) * curseCoinMult();
+    const maxHp = TUNE.playerMaxHp + 20 * L("vitality") + (tr.hpAdd || 0);
+    g.coins = 0; g.coinMult = (1 + 0.2 * L("greed")) * (g.daily ? 1 : curseCoinMult());
     g.player = {
       x: 0, y: 0, vx: 0, vy: 0, hp: maxHp, maxHp, iframes: 0, flip: false, moving: false, bob: 0,
       dirX: -1, dirY: 0,
       stats: {
-        dmgMult: (1 + 0.06 * getLevel("might")) * TUNE.dmgMultExtra,
+        dmgMult: (1 + 0.06 * L("might")) * TUNE.dmgMultExtra,
         cdMult: TUNE.cdMultExtra,
-        spdMult: 1 + 0.04 * getLevel("swift"),
-        magnet: TUNE.playerMagnet * (1 + 0.15 * getLevel("magnet")),
-        crit: TUNE.playerCrit,
-        regen: 0.3 * getLevel("regen"),
+        spdMult: (1 + 0.04 * L("swift")) * (tr.spdMult || 1) * (ds && ds.spdMult ? ds.spdMult : 1),
+        magnet: TUNE.playerMagnet * (1 + 0.15 * L("magnet")),
+        crit: TUNE.playerCrit + (tr.critAdd || 0),
+        regen: 0.3 * L("regen") + (tr.regenAdd || 0),
       },
     };
     g.enemies.length = 0; g.projectiles.length = 0; g.pickups.length = 0; g.delayed.length = 0;
-    g.weapons = [{ id: "wand", lv: 1, t: 0.5 }];
-    g.passives = {}; g.burnDps = 0;
+    g.weapons = [{ id: style.startWeapon || "wand", lv: 1, t: 0.5 }];
+    g.passives = {}; g.burnDps = 0; g.burnSrc = "flame";
+    if (style.startPassive) g.passives[style.startPassive] = 1; // verdant: 緑の守り石
+    if (ds && Array.isArray(ds.startRelics)) { // デイリーの初期レリック
+      for (const rid of ds.startRelics) {
+        if (RELICS[rid] && !g.relics.includes(rid)) { g.relics.push(rid); RELICS[rid].apply(g); }
+      }
+    }
     g.fxWorld.clear(); g.fxTop.clear(); g.fxText.clear();
     g.cam.x = -VW / 2; g.cam.y = -VH / 2;
     g.shake = 0; g.spawnT = 0.8; g.swarmT = TUNE.swarmFirst; g.bossT = TUNE.bossFirst; g.seed = Date.now() % 65521 || 7;
+    g.updateProps(); // 破壊可能オブジェクトの初期配置
   };
 
   // ---- クエリ系（武器側から使う primitives） ----------------------------------
@@ -203,10 +285,10 @@ export function createGame() {
   };
   g.forEachEnemy = (fn) => { for (const e of g.enemies) fn(e); };
 
-  g.addProjectile = (x, y, angle, speed, life, dmg, pierce, mod) => {
+  g.addProjectile = (x, y, angle, speed, life, dmg, pierce, mod, src) => {
     if (g.projectiles.length > 26) return;
     const f = createFx(mod || FX.plasmaShot, { x, y, angle, size: 5 + Math.min(4, dmg / 6) });
-    g.projectiles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life, dmg, pierce, hit: new Set(), f });
+    g.projectiles.push({ x, y, vx: Math.cos(angle) * speed, vy: Math.sin(angle) * speed, life, dmg, pierce, hit: new Set(), f, src: src || "other" });
   };
 
   // ---- ダメージ ---------------------------------------------------------------
@@ -217,23 +299,26 @@ export function createGame() {
     g.fxText.spawn(mod, x + (Math.random() - 0.5) * 8, y - 14, { text, seed: g.rseed() });
   };
 
-  /** 範囲ダメージ。slow / knock / kind（シナジー判定用）を任意で付ける */
+  /** 範囲ダメージ。slow / knock / kind（シナジー判定用）/ src / electrify を任意で付ける。破壊可能オブジェクトも対象 */
   g.damageArea = (x, y, r, dmg, opt = {}) => {
     let hitAny = false;
     for (const e of [...g.enemies]) {
       const d = Math.hypot(e.x - x, e.y - y);
       if (d <= r + e.r * 0.5) {
         const ang = Math.atan2(e.y - y, e.x - x);
-        g.damageEnemy(e, dmg, { knock: (opt.knock ?? 34) * (1 - d / (r + e.r)), pushX: Math.cos(ang), pushY: Math.sin(ang), slow: opt.slow, kind: opt.kind });
+        g.damageEnemy(e, dmg, { knock: (opt.knock ?? 34) * (1 - d / (r + e.r)), pushX: Math.cos(ang), pushY: Math.sin(ang), slow: opt.slow, kind: opt.kind, src: opt.src, electrify: opt.electrify });
         hitAny = true;
       }
+    }
+    for (const pr of [...g.props]) {
+      if (Math.hypot(pr.x - x, pr.y - y) <= r + 5) { g.damageProp(pr, dmg); hitAny = true; }
     }
     if (hitAny && opt.sfx) opt.sfx();
     return hitAny;
   };
 
   /** チェインサンダー用：(x,y) の近くで exclude 以外の最も近い敵へ連鎖ダメージ */
-  g.chainFrom = (x, y, exclude, dmg, radius = 46) => {
+  g.chainFrom = (x, y, exclude, dmg, radius = 46, src = "thunderEvo") => {
     let best = null, bd = radius * radius;
     for (const e of g.enemies) {
       if (e === exclude || e.hp <= 0) continue;
@@ -244,14 +329,27 @@ export function createGame() {
       // 連鎖の見た目：起点から対象方向へ chain-lightning、着弾点に spark-arc
       g.fxTop.spawn(FX.chainLightning, x, y - 12, { seed: g.rseed(), flip: best.x < x });
       g.fxTop.spawn(FX.sparkArc, best.x, best.y - 10, { seed: g.rseed() });
-      g.damageEnemy(best, dmg, { kind: "bolt" });
+      g.damageEnemy(best, dmg, { kind: "bolt", src });
     }
     return best;
   };
 
   g.damageEnemy = (e, raw, opt = {}) => {
     if (e.hp <= 0) return;
-    const crit = Math.random() < g.player.stats.crit;
+    const src = opt.src || "other";
+    // シナジー「融解」：燃焼中の敵に氷（nova 系）が当たると残り燃焼を一括精算して爆発し、燃焼を消費する
+    const isIce = opt.kind === "ice" || opt.kind === "nova2";
+    if (isIce && e.burn > 0 && g.burnDps > 0) {
+      const burstRaw = e.burn * g.burnDps * (g.burnMult || 1);
+      e.burn = 0; e.burnAcc = 0;
+      if (e.flame) { e.flame.stop(); e.flame = null; }
+      g.fxTop.spawn(FX.fireball, e.x, e.y - 14, { seed: g.rseed(), palette: PAL.fire });
+      g.damageArea(e.x, e.y, 26, burstRaw, { kind: "melt", src: "melt" });
+      if (e.hp <= 0) { e.lastSrc = "melt"; g.killEnemy(e); return; }
+    }
+    // シナジー「感電審判」：スマイト着弾で感電デバフ（その敵へのクリ率 +15%）
+    if (opt.electrify) e.elect = Math.max(e.elect || 0, opt.electrify);
+    const crit = Math.random() < g.player.stats.crit + ((e.elect || 0) > 0 ? 0.15 : 0);
     // シナジー「氷結粉砕」：減速中の敵は雷（kind: bolt）から +50% ダメージ
     const synergy = (e.slow > 0 && opt.kind === "bolt") ? 1.5 : 1;
     if (synergy > 1 && (g.shatterCd || 0) <= 0) { // 粉砕の見た目（連発時は 0.25 秒に1回まで）
@@ -259,13 +357,18 @@ export function createGame() {
       g.fxTop.spawn(FX.iceShatter, e.x, e.y - 8, { seed: g.rseed() });
       if (Math.random() < 0.35) g.fxTop.spawn(FX.iceSpikes, e.x, e.y, { seed: g.rseed() });
     }
-    const dmg = raw * g.player.stats.dmgMult * (crit ? 2.5 : 1) * synergy;
+    // 天候「雨」：雷ダメージ +15%（氷結粉砕とは別係数で乗算）
+    const rainBolt = (opt.kind === "bolt" && g.weatherId() === "rain") ? 1.15 : 1;
+    const dmg = raw * g.player.stats.dmgMult * (crit ? 2.5 : 1) * synergy * rainBolt;
     e.hp -= dmg;
+    e.lastSrc = src;
+    g.trackDamage(src, dmg, false);
     e.flash = 0.12;
     // ヒットストップ：通常命中は短く強めに、クリティカルは最優先で長めに。
     // 通常はクールダウン 0.4 秒で間引く（撃ち合いの終盤で常時スローにならないため）
     g.punch(crit ? 0.06 : 0.05, crit ? { force: true, cool: 0.3 } : { cool: 0.4 });
-    if (opt.slow) e.slow = Math.max(e.slow || 0, opt.slow);
+    // 天候「雪」：減速の持続 +25%
+    if (opt.slow) e.slow = Math.max(e.slow || 0, opt.slow * (g.weatherId() === "snow" ? 1.25 : 1));
     if (opt.pushX !== undefined) { e.kx = (e.kx || 0) + opt.pushX * opt.knock; e.ky = (e.ky || 0) + opt.pushY * opt.knock; }
     g.showDamage(e.x, e.y - (e.fly ? 24 : 14), dmg, crit);
     if (!crit && Math.random() < 0.4) g.fxTop.spawn(FX.hitSpark, e.x + (opt.pushX || 0) * -6, e.y - 12, { aim: Math.atan2(opt.pushY || 0, opt.pushX || -1), seed: g.rseed(), height: 10 });
@@ -279,6 +382,14 @@ export function createGame() {
     g.kills++;
     e.dead = true;
     if (e.boss) g.bossRef = null;
+    // ダメージ内訳のキル帰属＋図鑑キル数＋関連実績
+    g.trackDamage(e.lastSrc || "other", 0, true);
+    addEnemyKill(e.type.id);
+    if (e.type.id === "butterfly") { g.runButterflies++; if (g.runButterflies >= 15) g.unlockAch("butterfly15"); }
+    if (g.kills === 100) g.unlockAch("kills100run");
+    if (g.kills === 500) g.unlockAch("kills500run");
+    if (getAch().totalKills >= 1000) g.unlockAch("kills1000");
+    if (e.finalBoss) g.pendingFinalBossDown = true;
     // ヘルフレイム：燃焼中に倒れた敵は近くの敵へ燃え移る
     if (e.burn > 0 && g.weapons.some((w) => w.id === "flameEvo")) {
       const near = g.nearestEnemy(e.x, e.y, 52);
@@ -298,7 +409,7 @@ export function createGame() {
         const t = g.randomEnemy(160);
         if (t) {
           g.fxTop.spawn(FX.lightningStrike, t.x, t.y, { seed: g.rseed() });
-          g.delayed.push({ t: 0.76, x: t.x, y: t.y, r: 22, dmg: 22, kind: "bolt" });
+          g.delayed.push({ t: 0.76, x: t.x, y: t.y, r: 22, dmg: 22, kind: "bolt", src: "echo" });
         }
       }
       if (hasRelic(g, "vampire") && g.relicKills % 50 === 0) {
@@ -333,6 +444,8 @@ export function createGame() {
     const cv = Math.max(1, Math.round(e.type.xp * 0.6)) * (e.elite ? 6 : 1) * (e.coinBonus || 1);
     g.spawnPickup(e.x + (Math.random() - 0.5) * 10, e.y + (Math.random() - 0.5) * 6, "coin", Math.round(cv * g.coinMult * TUNE.coinMultExtra));
     if (e.type.id !== "skull" && Math.random() < (e.elite ? TUNE.heartRateElite : TUNE.heartRate)) g.spawnPickup(e.x, e.y, "heart", TUNE.heartHeal);
+    // ラスボス撃破は killEnemy の全処理（ドロップ等）が終わってから勝利フローへ
+    if (g.pendingFinalBossDown) { g.pendingFinalBossDown = false; g.onFinalBossDown(); }
   };
 
   // ---- 拾い物 -----------------------------------------------------------------
@@ -340,7 +453,7 @@ export function createGame() {
     const mod = kind === "xp" ? FX.gemSpin : kind === "heart" ? FX.heartPickup : FX.coinSpin;
     const opts = { seed: g.rseed() };
     if (kind === "xp") opts.palette = value >= 6 ? PAL.xpGold : PAL.xpBlue;
-    if (kind === "chest") { opts.palette = PAL.xpGold; opts.light = 1.6; }
+    if (kind === "chest" || kind.startsWith("item")) { opts.palette = PAL.xpGold; opts.light = 1.6; }
     const f = createFx(mod, { x, y, ...opts });
     g.pickups.push({ x, y, kind, value, f, vx: 0, vy: 0 });
   };
@@ -351,6 +464,7 @@ export function createGame() {
     const scale = 1 + g.time / TUNE.hpDiv * TUNE.hpK;
     const opts = { seed: g.rseed() };
     if (opt.chest) { opts.palette = PAL.xpGold; opts.light = 1.6; opts.seed = g.rseed(); }
+    else if (opt.pal) { opts.palette = opt.pal; opts.light = 1.5; opts.seed = g.rseed(); }
     else if (elite) { opts.palette = PAL.elite; opts.light = 1.5; opts.seed = g.rseed(); }
     const f = createFx(type.mod, { x, y, ...opts });
     const hp = type.hp * scale * (elite ? TUNE.eliteHpMult : 1) * TUNE.enemyHpMult * g.runHpMult;
@@ -378,12 +492,18 @@ export function createGame() {
   g.getBoss = () => (g.bossRef && g.bossRef.hp > 0 && g.enemies.includes(g.bossRef)) ? g.bossRef : null;
 
   function pickType() {
-    const pool = TYPES.filter((t) => g.time >= t.at);
+    let pool = TYPES.filter((t) => g.time >= t.at);
+    if (g.dailyTypes && g.dailyTypes.length) { // デイリー: 敵種別を絞る（時間条件で空なら時間条件を無視）
+      const lim = pool.filter((t) => g.dailyTypes.includes(t.id));
+      if (lim.length) pool = lim;
+      else { const all = TYPES.filter((t) => g.dailyTypes.includes(t.id) && t.id !== "skull"); if (all.length) pool = all; }
+    }
     let sum = 0; for (const t of pool) sum += t.w;
     let r = Math.random() * sum;
     for (const t of pool) { r -= t.w; if (r <= 0) return t; }
     return pool[0];
   }
+  g.pickType = pickType;
   // 指定角度方向の「画面の少し外側」座標。長方形ビューの辺に沿うのでアスペクト非依存で必ず画面外に出る。
   const ringAt = (a) => {
     const cx = Math.cos(a), sy = Math.sin(a);
@@ -429,10 +549,27 @@ export function createGame() {
 
   // ---- 本体アップデート ----------------------------------------------------------
   g.update = function update(dt, input) {
-    if (!g.over) g.time += dt;
+    if (!g.over) { if (g.finalBoss) g.time = TUNE.winTime; else g.time += dt; } // ラスボス戦中はタイマー停止（05:00表示）
     if (g.stopCool > 0) g.stopCool -= dt;
     if (g.shatterCd > 0) g.shatterCd -= dt;
+    g.justCdT = Math.max(0, g.justCdT - dt);
+    g.justBuffT = Math.max(0, g.justBuffT - dt);
     const p = g.player;
+    if (g.endless && !g.ach400 && g.time >= 400) { g.ach400 = true; g.unlockAch("endless400"); }
+    // 破壊可能オブジェクトの定期再配置
+    g.propT -= dt;
+    if (g.propT <= 0) { g.propT = 0.5; g.updateProps(); }
+    for (const pr of g.props) if (pr.flash > 0) pr.flash -= dt;
+    // 天候「嵐」：約10秒ごとにフィールドへ予告付き落雷（敵にダメージ、予告内に立つプレイヤーにも小ダメージ）
+    if (g.weatherId() === "storm" && !g.over) {
+      g.stormT -= dt;
+      if (g.stormT <= 0) {
+        g.stormT = 10;
+        const sx = p.x + (Math.random() - 0.5) * 260, sy = p.y + (Math.random() - 0.5) * 180;
+        g.delayed.push({ t: 0.9, x: sx, y: sy, r: 30, dmg: 26, kind: "stormBolt", storm: true });
+        g.zones.push({ x: sx, y: sy, r: 30, t: 0.9, kind: "telegraph" });
+      }
+    }
 
     // --- プレイヤー移動（加速・減速に Ease をかける）
     let mx = input.ax || 0, my = input.ay || 0; // コントローラーのアナログ入力は強弱をそのまま使う
@@ -446,12 +583,13 @@ export function createGame() {
     if (mag > 0.02) { p.dirX = mx / (mag || 1); p.dirY = my / (mag || 1); if (mag > 1) { p.dirX = mx; p.dirY = my; } }
     // クラゲの泡など鈍足ゾーン内では移動速度が下がる
     const inSlowZone = g.zones.some((z) => z.kind === "slow" && Math.hypot(p.x - z.x, p.y - z.y) < z.r);
-    const spd = TUNE.playerSpeed * p.stats.spdMult * (inSlowZone ? 0.55 : 1);
+    const spd = TUNE.playerSpeed * p.stats.spdMult * (inSlowZone ? 0.55 : 1) * (g.weatherId() === "leaves" ? 1.1 : 1); // 天候「落葉」: 速度+10%
     // --- ダッシュ（Space / Bボタン / ダッシュボタン。クールダウン中は不可、発動中は無敵）
     if (g.dashCdT > 0) g.dashCdT -= dt;
     if (input.dash && g.dashCdT <= 0 && g.dashT <= 0) {
       g.dashT = TUNE.dashTime;
-      g.dashCdT = TUNE.dashCd;
+      g.dashUsed = true;
+      g.dashCdT = TUNE.dashCd * (g.dashCdMult || 1);
       g.dashDirX = p.dirX; // 入力中はその方向、無入力時は最後に向いた方向
       g.dashDirY = p.dirY;
       g.fxTop.spawn(FX.manaBurst, p.x, p.y - 10, { seed: g.rseed() });
@@ -470,11 +608,19 @@ export function createGame() {
       p.vy += (my * spd - p.vy) * ease;
     }
     p.x += p.vx * dt; p.y += p.vy * dt;
+    // ラスボス戦：円形アリーナ内にプレイヤーをクランプ
+    if (g.finalBoss) {
+      const fb = g.finalBoss, adx = p.x - fb.cx, ady = p.y - fb.cy, ad = Math.hypot(adx, ady) || 1;
+      if (ad > fb.R - 8) { p.x = fb.cx + (adx / ad) * (fb.R - 8); p.y = fb.cy + (ady / ad) * (fb.R - 8); }
+    }
     const vel = Math.hypot(p.vx, p.vy);
     p.moving = vel > 6;                          // 実際に動いているか（歩行 bob・見た目の判定）
     if (p.moving) p.bob += dt * 9 * Math.min(1, vel / spd); // 遅い移動はゆっくり歩く
     p.iframes = Math.max(0, p.iframes - dt);
-    if (p.stats.regen && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + p.stats.regen * dt);
+    { // 自然回復（天候「木漏れ日」: +0.5/秒を上乗せ）
+      const regenTot = (p.stats.regen || 0) + (g.weatherId() === "godrays" ? 0.5 : 0);
+      if (regenTot > 0 && p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + regenTot * dt);
+    }
 
     // --- カメラ追従（シェイクの減衰は updateVisuals 側）
     g.cam.x += (p.x - VW / 2 - g.cam.x) * Math.min(1, dt * 8);
@@ -483,7 +629,7 @@ export function createGame() {
     // --- 湧き
     g.spawnT -= dt;
     const interval = Math.max(TUNE.spawnMin, TUNE.spawnBase - g.time * TUNE.spawnDecay) * (g.curseSwarmT > 0 ? 0.55 : 1);
-    if (g.spawnT <= 0 && g.enemies.length < TUNE.maxEnemies) {
+    if (g.spawnT <= 0 && g.enemies.length < TUNE.maxEnemies && !g.finalBoss) {
       g.spawnT = interval;
       const t = pickType();
       const [x, y] = ringPoint();
@@ -495,7 +641,7 @@ export function createGame() {
     g.eventT -= dt;
     if (g.eventT <= 0) {
       g.eventT = Math.max(30, TUNE.eventInterval + (Math.random() * 14 - 7)); // 既定68±7 ≒ 61〜75秒
-      g.triggerEvent();
+      if (!g.finalBoss) g.triggerEvent();
     }
     // XP神殿：サークル内にとどまると進行、離れると一時停止（リセットはしない）
     if (g.shrine && !g.shrine.done) {
@@ -539,7 +685,7 @@ export function createGame() {
       }
     }
     g.swarmT -= dt;
-    if (g.swarmT <= 0) { // 群れラッシュ：同じ方向からまとめて湧く
+    if (g.swarmT <= 0 && !g.finalBoss) { // 群れラッシュ：同じ方向からまとめて湧く
       g.swarmT = TUNE.swarmInterval;
       const a = Math.random() * Math.PI * 2;
       const n = TUNE.swarmBase + Math.floor(g.time / TUNE.swarmDiv);
@@ -551,7 +697,7 @@ export function createGame() {
       g.addShake(2);
     }
     g.bossT -= dt;
-    if (g.bossT <= 0) { // ボス髑髏（精鋭）
+    if (g.bossT <= 0 && !g.finalBoss) { // ボス髑髏（精鋭）
       g.bossT = TUNE.bossInterval;
       if (g.time > TUNE.bossFirst) {
         const [x, y] = ringPoint();
@@ -567,6 +713,9 @@ export function createGame() {
       const dx = p.x - e.x, dy = p.y - e.y, d = Math.hypot(dx, dy) || 1;
       const slow = e.slow > 0 ? 0.5 : 1;
       if (e.slow > 0) e.slow -= dt;
+      if (e.elect > 0) e.elect -= dt; // 感電デバフの残り時間
+      const frozen = (e.freeze || 0) > 0; // 即時アイテム「時止め」
+      if (frozen) e.freeze -= dt;
       e.bt = (e.bt || 0) + dt;
       let mvx = dx / d, mvy = dy / d, mult = 1;
       const perpX = -dy / d, perpY = dx / d;
@@ -617,20 +766,19 @@ export function createGame() {
               g.fxTop.spawn(FX.timeStop, e.x, e.y - 12, { seed: g.rseed() });
               g.fxWorld.spawn(FX.portal, e.x, e.y - 10, { seed: g.rseed(), palette: PAL.elite });
             }
-            // 召喚：フェーズ1は6秒ごと、フェーズ2は4.5秒ごとに子分3〜5体
-            e.summonT -= dt;
+            // 召喚：フェーズ1は6秒ごと、フェーズ2は4.5秒ごとに子分3〜5体（フリーズ中は止まる）
+            if (!frozen) e.summonT -= dt;
             if (e.summonT <= 0 && g.enemies.length < TUNE.maxEnemies) {
               e.summonT = phase2 ? 4.5 : 6;
-              const pool = TYPES.filter((t) => g.time >= t.at && t.id !== "skull");
               const n = 3 + ((Math.random() * 3) | 0);
               for (let k = 0; k < n; k++) {
-                const t = pool.length ? pool[(Math.random() * pool.length) | 0] : TYPES[0];
-                spawnEnemy(t, e.x + (Math.random() - 0.5) * 36, e.y + (Math.random() - 0.5) * 24, false);
+                const st = pickType(); // デイリー制限も召喚に効かせる。ただし髑髏は子分にしない（従来どおり）
+                spawnEnemy(st.id === "skull" ? TYPES[0] : st, e.x + (Math.random() - 0.5) * 36, e.y + (Math.random() - 0.5) * 24, false);
               }
               g.fxTop.spawn(FX.summonRise, e.x, e.y - 10, { seed: g.rseed() });
               g.fxTop.spawn(FX.manaBurst, e.x, e.y - 14, { seed: g.rseed() });
             }
-            if (phase2) {
+            if (phase2 && !frozen) {
               chargeStep(120, 0.6, 3.4, 1.6);
               if (e.bstate === 0) mult = 1.35;
               // 放射バースト：5秒ごとに8方向へ敵弾
@@ -646,36 +794,62 @@ export function createGame() {
                 sfx.zap();
               }
             }
+            // ラスボス専用の大技2種（放射バースト／直線ビーム）
+            if (e.finalBoss && g.finalBoss && !frozen) {
+              const fb = g.finalBoss;
+              fb.burstT -= dt;
+              if (fb.burstT <= 0) {
+                fb.burstT = 3.5;
+                g.fxTop.spawn(FX.manaBurst, e.x, e.y - 14, { seed: g.rseed(), palette: PAL.finalBoss });
+                for (let k = 0; k < 10; k++) {
+                  const a = (k / 10) * Math.PI * 2 + e.bt;
+                  const f = createFx(FX.energyDisc, { x: e.x, y: e.y - 10, angle: a, size: 5, palette: PAL.finalBoss, seed: g.rseed() });
+                  g.enemyShots.push({ x: e.x, y: e.y - 10, vx: Math.cos(a) * 52, vy: Math.sin(a) * 52, life: 2.8, dmg: e.dmg * 0.8, f });
+                }
+                sfx.zap();
+              }
+              fb.beamT -= dt;
+              if (fb.beamT <= 0) { // プレイヤー方向へ予告0.7秒つきビーム
+                fb.beamT = 4.2;
+                const ang = Math.atan2(p.y - e.y, p.x - e.x);
+                g.delayed.push({ t: 0.7, kind: "beam", x: e.x, y: e.y - 10, angle: ang, len: 280, width: 16, dmg: e.dmg * 1.2 });
+              }
+            }
           }
           break;
         }
         default: break; // slime は直進
       }
-      e.x += mvx * e.spd * mult * slow * dt + (e.kx || 0) * dt;
-      e.y += mvy * e.spd * mult * slow * dt + (e.ky || 0) * dt;
+      e.x += mvx * e.spd * mult * slow * (frozen ? 0 : 1) * (g.weatherId() === "leaves" ? 1.1 : 1) * dt + (e.kx || 0) * dt;
+      e.y += mvy * e.spd * mult * slow * (frozen ? 0 : 1) * (g.weatherId() === "leaves" ? 1.1 : 1) * dt + (e.ky || 0) * dt;
       e.kx *= Math.exp(-dt * 7); e.ky *= Math.exp(-dt * 7);
       if (e.flash > 0) e.flash -= dt;
       // 燃焼 DoT：1回/0.5秒でチリチリ削り、spirit-flame（暖色）を随伴させる
       if (e.burn > 0) {
-        e.burn -= dt;
+        e.burn -= dt * (g.weatherId() === "rain" ? 1 / 0.85 : 1); // 天候「雨」: 燃焼の持続 -15%
         e.burnAcc += dt;
         if (!e.flame && g.flameCount() < 14)
           e.flame = createFx(FX.spiritFlame, { x: e.x, y: e.y, palette: PAL.fire, seed: g.rseed(), light: 1.2 });
         if (e.burnAcc >= 0.5) {
           e.burnAcc -= 0.5;
-          e.hp -= g.burnDps * g.player.stats.dmgMult * 0.5;
+          const btick = g.burnDps * (g.burnMult || 1) * g.player.stats.dmgMult * 0.5;
+          e.hp -= btick;
+          const bSrc = g.burnSrc || "flame"; // 燃焼DoTの帰属（リザルト内訳）
+          e.lastSrc = bSrc;
+          g.trackDamage(bSrc, btick, false);
           if (e.hp <= 0) { g.killEnemy(e); continue; }
         }
         if (e.burn <= 0 && e.flame) e.flame.stop();
       }
-      // 接触ダメージ（ダッシュ中は無敵）
-      if (g.dashT <= 0 && p.iframes <= 0 && d < e.r * 0.55 + 7) {
+      // 接触ダメージ（ダッシュ中は無敵。ダッシュですり抜けたらジャスト回避、フリーズ中は当たらない）
+      if (d < e.r * 0.55 + 7 && g.dashT > 0) g.tryJustDodge();
+      else if (g.dashT <= 0 && p.iframes <= 0 && !frozen && d < e.r * 0.55 + 7) {
         p.hp -= e.dmg;
         p.iframes = TUNE.playerIframes;
         g.addShake(4);
         g.punch(0.06, { force: true, cool: 0.3 }); // 被弾も一瞬止めて手応えを出す
         sfx.hurt();
-        if (hasRelic(g, "thorns")) g.damageArea(p.x, p.y - 8, 18, 10, { knock: 40 });
+        if (hasRelic(g, "thorns")) g.damageArea(p.x, p.y - 8, 18, 10, { knock: 40, src: "thorns" });
         if (g.onHurt) g.onHurt();
         if (p.hp <= 0) { p.hp = 0; g.finish(false); return; }
       }
@@ -693,9 +867,28 @@ export function createGame() {
       if (e && !b.hit.has(e) && Math.hypot(e.x - b.x, e.y - b.y) < e.r * 0.75 + 6) {
         b.hit.add(e);
         const ang = Math.atan2(b.vy, b.vx);
-        g.damageEnemy(e, b.dmg, { knock: 46, pushX: Math.cos(ang), pushY: Math.sin(ang) });
+        const wasBurning = e.burn > 0;
+        g.damageEnemy(e, b.dmg, { knock: 46, pushX: Math.cos(ang), pushY: Math.sin(ang), src: b.src });
         g.fxTop.spawn(FX.hitSpark, b.x, b.y - 4, { aim: ang, height: 8, seed: g.rseed() });
+        // シナジー「誘爆」：燃焼中の敵をワンド系の弾で倒すと小火球が飛び散る
+        if (e.hp <= 0 && wasBurning && (b.src === "wand" || b.src === "wandEvo")) {
+          for (let k = 0; k < 3; k++) {
+            const a2 = Math.random() * Math.PI * 2;
+            const fx2 = e.x + Math.cos(a2) * 20, fy2 = e.y + Math.sin(a2) * 16;
+            g.fxTop.spawn(FX.fireball, fx2, fy2 - 8, { seed: g.rseed(), palette: PAL.fire });
+            g.damageArea(fx2, fy2, 16, 10, { kind: "burst", src: "burst" });
+          }
+        }
         if (b.pierce-- <= 0) { b.gone = true; b.f.stop(); }
+      }
+      if (!b.gone) { // 敵に当たらなければ破壊可能オブジェクトを判定
+        for (const pr of [...g.props]) {
+          if (Math.hypot(pr.x - b.x, pr.y - b.y) < 12) {
+            g.damageProp(pr, b.dmg);
+            if (b.pierce-- <= 0) { b.gone = true; b.f.stop(); }
+            break;
+          }
+        }
       }
     }
 
@@ -704,12 +897,13 @@ export function createGame() {
       const b = g.enemyShots[i];
       b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
       let dead = b.life <= 0;
+      if (!dead && g.dashT > 0 && Math.hypot(b.x - p.x, b.y - (p.y - 8)) < 11) g.tryJustDodge(); // 敵弾のすり抜けもジャスト回避
       if (!dead && g.dashT <= 0 && p.iframes <= 0 && Math.hypot(b.x - p.x, b.y - (p.y - 8)) < 11) {
         p.hp -= b.dmg;
         p.iframes = TUNE.playerIframes;
         g.addShake(4); g.punch(0.06, { force: true, cool: 0.3 });
         sfx.hurt();
-        if (hasRelic(g, "thorns")) g.damageArea(p.x, p.y - 8, 18, 10, { knock: 40 });
+        if (hasRelic(g, "thorns")) g.damageArea(p.x, p.y - 8, 18, 10, { knock: 40, src: "thorns" });
         if (g.onHurt) g.onHurt();
         dead = true;
         if (p.hp <= 0) { p.hp = 0; g.finish(false); return; }
@@ -722,18 +916,54 @@ export function createGame() {
       const dl = g.delayed[i];
       dl.t -= dt;
       if (dl.t <= 0) {
+        if (dl.kind === "beam") { // ラスボスの直線ビーム（帯に当たれば被弾、ダッシュですり抜ければジャスト回避）
+          g.fxTop.spawn(FX.arcaneBeam, dl.x, dl.y, { seed: g.rseed(), angle: dl.angle, palette: PAL.finalBoss });
+          const ca = Math.cos(dl.angle), sa = Math.sin(dl.angle);
+          const rx = p.x - dl.x, ry = (p.y - 8) - dl.y;
+          const along = rx * ca + ry * sa, perp = Math.abs(-rx * sa + ry * ca);
+          if (along > 0 && along < dl.len && perp < dl.width) {
+            if (g.dashT > 0) g.tryJustDodge();
+            else if (p.iframes <= 0) {
+              p.hp -= dl.dmg;
+              p.iframes = TUNE.playerIframes;
+              g.addShake(4); g.punch(0.06, { force: true, cool: 0.3 }); sfx.hurt();
+              if (hasRelic(g, "thorns")) g.damageArea(p.x, p.y - 8, 18, 10, { knock: 40, src: "thorns" });
+              if (g.onHurt) g.onHurt();
+              if (p.hp <= 0) { p.hp = 0; g.delayed.splice(i, 1); g.finish(false); return; }
+            }
+          }
+          g.delayed.splice(i, 1);
+          continue;
+        }
+        if (dl.storm) { // 天候「嵐」の落雷
+          g.fxTop.spawn(FX.lightningStrike, dl.x, dl.y, { seed: g.rseed() });
+          g.damageArea(dl.x, dl.y - 8, dl.r, dl.dmg, { kind: "bolt", src: "storm", knock: 20 });
+          if (Math.hypot(p.x - dl.x, (p.y - 8) - dl.y) < dl.r) {
+            if (g.dashT > 0) g.tryJustDodge();
+            else if (p.iframes <= 0) {
+              p.hp -= 8;
+              p.iframes = TUNE.playerIframes; g.addShake(3); sfx.hurt();
+              if (g.onHurt) g.onHurt();
+              if (p.hp <= 0) { p.hp = 0; g.delayed.splice(i, 1); g.finish(false); return; }
+            }
+          }
+          g.delayed.splice(i, 1);
+          continue;
+        }
         const isBolt = dl.kind === "bolt" || dl.kind === "boltChain";
         g.damageArea(dl.x, dl.y - 8, dl.r, dl.dmg, {
           knock: dl.kind === "smite" ? 60 : 30,
           slow: dl.slow,
           kind: isBolt ? "bolt" : dl.kind,
+          src: dl.src,
+          electrify: dl.electrify,
           sfx: isBolt ? sfx.thunder : undefined,
         });
         if (isBolt) g.fxTop.spawn(FX.zapHit, dl.x, dl.y - 10, { seed: g.rseed() });
         if (dl.kind === "boltChain") {
           // 着弾点付近の敵へ60%で連鎖（対象は着弾で生き残った最も近い敵を起点に探す）
           const src = g.nearestEnemy(dl.x, dl.y, dl.r + 10);
-          g.chainFrom(dl.x, dl.y, src, dl.dmg * 0.6, 52);
+          g.chainFrom(dl.x, dl.y, src, dl.dmg * 0.6, 52, dl.src || "thunderEvo");
         }
         g.delayed.splice(i, 1);
       }
@@ -749,9 +979,10 @@ export function createGame() {
         g.pickups.splice(i, 1);
         if (it.kind === "xp") {
           g.gainXp(it.value); sfx.pickup();
-          if (hasRelic(g, "gemBomb")) g.damageArea(p.x, p.y - 8, 20, 6, { knock: 20 });
+          if (hasRelic(g, "gemBomb")) g.damageArea(p.x, p.y - 8, 20, 6, { knock: 20, src: "gemBomb" });
         }
         else if (it.kind === "coin") { g.coins += it.value; sfx.coin(); }
+        else if (it.kind === "itemFreeze" || it.kind === "itemVacuum" || it.kind === "itemBomb") { g.useInstantItem(it.kind); }
         else if (it.kind === "chest") {
           g.fxTop.spawn(FX.chestOpen, p.x, p.y - 8, { seed: g.rseed(), palette: PAL.xpGold }); // 宝箱が開く
           g.fxTop.spawn(FX.lootBeam, p.x, p.y - 12, { seed: g.rseed(), palette: PAL.xpGold });
@@ -768,20 +999,127 @@ export function createGame() {
       const def = WEAPONS[w.id];
       w.t -= dt;
       if (w.t <= 0) {
-        w.t = def.cd(w.lv) * p.stats.cdMult;
+        w.t = def.cd(w.lv) * p.stats.cdMult * (g.justBuffT > 0 ? 0.75 : 1); // ジャスト回避バフ（cdMult 本体は書き換えない）
         def.fire(g, w.lv);
       }
     }
 
     // 演出レイヤーの時間進行は updateVisuals（main が毎フレーム呼ぶ）に任せる
 
-    // --- 勝利（生存時間）：一度だけ勝利画面へ。エンドレス継続が選べる
-    if (g.time >= TUNE.winTime && !g.over && !g.wonOnce) g.triggerVictory();
+    // --- ラスボス：300秒到達で即勝利ではなく最終決戦へ（1ラン1回だけ）
+    if (g.time >= TUNE.winTime && !g.over && !g.wonOnce && !g.finalBoss && !g.finalBossDone) g.startFinalBoss();
+  };
+
+  /** ラスボス戦開始：通常敵を一掃し、円形アリーナに巨大な精鋭髑髏を出現させる */
+  g.startFinalBoss = () => {
+    const p = g.player;
+    for (const e of [...g.enemies]) {
+      g.fxTop.spawn(FX.poof, e.x, e.y, { seed: g.rseed(), light: 0.5 });
+      e.f.stop();
+      if (e.flame) e.flame.stop();
+    }
+    g.enemies.length = 0;
+    for (const z of g.zones) { if (z.f) z.f.stop(); }
+    g.zones.length = 0;
+    const dps = Math.max(1, totalDps(g.player.stats, g.weapons));
+    const hp = Math.min(200000, Math.max(1500, Math.round(dps * 30)));
+    const boss = spawnEnemy(TYPES[TYPES.length - 1], p.x + 60, p.y - 20, true, { boss: true, pal: PAL.finalBoss });
+    boss.maxHp = hp; boss.hp = hp;
+    boss.r = 30;
+    boss.dmg = Math.max(boss.dmg, 16);
+    boss.finalBoss = true;
+    g.finalBoss = { e: boss, cx: p.x, cy: p.y, R: 150, burstT: 3.5, beamT: 2.5 };
+    if (g.arenaFx) g.arenaFx.stop();
+    g.arenaFx = g.fxWorld.spawn(FX.runeCircle, p.x, p.y, { seed: g.rseed(), palette: PAL.finalBoss, radius: 150 });
+    if (g.onBanner) g.onBanner("最終決戦！ 巨大髑髏を倒せ！");
+    g.addShake(6);
+    sfx.elite();
+  };
+
+  /** ラスボス撃破＝勝利（その後エンドレス継続も可能） */
+  g.onFinalBossDown = () => {
+    g.finalBoss = null;
+    g.finalBossDone = true;
+    if (g.arenaFx) { g.arenaFx.stop(); g.arenaFx = null; }
+    if (g.player) g.fxTop.spawn(FX.implosion, g.player.x, g.player.y - 10, { seed: g.rseed() });
+    g.unlockAch("finalBossDown");
+    g.triggerVictory();
+  };
+
+  // ---- 破壊可能オブジェクト＋即時アイテム --------------------------------------
+  /** プレイヤー周辺のセル（150px）を決定的に走査して props を配置し、遠方を除去する */
+  g.updateProps = () => {
+    const p = g.player; if (!p) return;
+    const CELL = 150, R = 420;
+    const cx0 = Math.floor((p.x - R) / CELL), cx1 = Math.floor((p.x + R) / CELL);
+    const cy0 = Math.floor((p.y - R) / CELL), cy1 = Math.floor((p.y + R) / CELL);
+    const kinds = ["candle", "crystal", "pot"];
+    for (let cx = cx0; cx <= cx1; cx++) for (let cy = cy0; cy <= cy1; cy++) {
+      const key = cx + ":" + cy;
+      if (g.propCells.has(key)) continue;
+      g.propCells.add(key);
+      let h = (cx * 73856093) ^ (cy * 19349663) ^ 0x9e3779b9;
+      h = (h ^ (h >>> 13)) >>> 0;
+      if (h % 100 >= 15) continue; // 約15%のセルにだけ配置
+      const ox = ((h >>> 7) % 121) - 60, oy = ((h >>> 13) % 121) - 60;
+      const x = cx * CELL + CELL / 2 + ox, y = cy * CELL + CELL / 2 + oy;
+      if (Math.hypot(x - p.x, y - p.y) < 46) continue; // プレイヤーの足元には置かない
+      g.props.push({ x, y, kind: kinds[h % 3], hp: 3, flash: 0, seed: h });
+    }
+    for (let i = g.props.length - 1; i >= 0; i--) {
+      if (Math.hypot(g.props[i].x - p.x, g.props[i].y - p.y) > 500) g.props.splice(i, 1);
+    }
+  };
+
+  g.damageProp = (pr, dmg) => {
+    const i = g.props.indexOf(pr);
+    if (i < 0) return;
+    pr.hp -= dmg;
+    pr.flash = 0.1;
+    if (pr.hp > 0) return;
+    g.props.splice(i, 1);
+    g.fxTop.spawn(FX.poof, pr.x, pr.y - 6, { seed: g.rseed(), light: 0.6 });
+    g.fxTop.spawn(FX.collectBurst, pr.x, pr.y - 6, { seed: g.rseed() });
+    const roll = Math.random();
+    if (roll < 0.55) g.spawnPickup(pr.x, pr.y, "coin", Math.max(1, Math.round(3 * g.coinMult)));
+    else if (roll < 0.75) g.spawnPickup(pr.x, pr.y, "heart", TUNE.heartHeal);
+    else if (roll < 0.87) { /* ドロップなし */ }
+    else {
+      const items = ["itemFreeze", "itemVacuum", "itemBomb"];
+      g.spawnPickup(pr.x, pr.y, items[(Math.random() * 3) | 0], 0);
+    }
+  };
+
+  /** 即時アイテムの発動（拾った瞬間に効果） */
+  g.useInstantItem = (kind) => {
+    const p = g.player;
+    if (kind === "itemFreeze") {
+      for (const e of g.enemies) e.freeze = Math.max(e.freeze || 0, 3);
+      g.fxTop.spawn(FX.timeStop, p.x, p.y - 10, { seed: g.rseed() });
+      if (g.onBanner) g.onBanner("時止め！ 全ての敵が3秒止まる");
+    } else if (kind === "itemVacuum") {
+      for (const it of g.pickups) if (it.kind === "xp" || it.kind === "coin") it.vacuum = true;
+      g.fxTop.spawn(FX.collectBurst, p.x, p.y - 10, { seed: g.rseed() });
+      if (g.onBanner) g.onBanner("ジェム吸引！");
+    } else if (kind === "itemBomb") {
+      g.fxTop.spawn(FX.bigExplosion, p.x, p.y - 10, { seed: g.rseed() });
+      for (const b of g.enemyShots) b.f.stop();
+      g.enemyShots.length = 0;
+      g.damageArea(p.x, p.y, 170, 45, { src: "bomb", kind: "holy" });
+      if (g.onBanner) g.onBanner("聖水ボム！");
+    }
+    sfx.relic();
   };
 
   /** 300秒到達：コインはまだ貯金しない（エンドレスで稼いだ分も含め、ラン終了時に一括入金） */
   g.triggerVictory = () => {
     g.wonOnce = true; g.over = true; g.won = true;
+    // 勝利系の実績
+    g.unlockAch("firstClear");
+    if (!g.dashUsed) g.unlockAch("noDashClear");
+    if (g.curse.length >= 1) g.unlockAch("curseClear");
+    if (g.curse.length >= 3) g.unlockAch("allCurseClear");
+    if (g.daily) g.unlockAch("dailyClear");
     g.hitStop = 0; g.stopCool = 0;
     // 夜明けの瞬間：周囲の闇が吸い込まれるインプロージョン
     if (g.player) g.fxTop.spawn(FX.implosion, g.player.x, g.player.y - 10, { seed: g.rseed() });
@@ -797,16 +1135,20 @@ export function createGame() {
     if (g.onBanner) g.onBanner("エンドレス突入！ 夜はまだ続く…");
   };
 
-  /** ランのコインを一度だけ貯金へ入金 */
+  /** ランのコインを一度だけ貯金へ入金（実績ボーナス achPending もここで一括） */
   g.bankRun = () => {
     if (g.banked) return;
     g.banked = true;
-    addBank(g.coins);
+    addBank(g.coins + (g.achPending || 0));
+    flushAch();
   };
 
   g.flameCount = () => { let n = 0; for (const e of g.enemies) if (e.flame) n++; return n; };
 
   g.gainXp = (v) => {
+    // 天候「桜」: ジェムの価値 +20%（厳密にはスポーン時に確定させたいが、一元化のため取得側で換算）
+    if (g.weatherId() === "cherry") v = Math.round(v * 1.2);
+    if (g.xpMult && g.xpMult !== 1) v = Math.round(v * g.xpMult); // デイリー: XP倍率
     g.xp += v;
     while (g.xp >= g.xpNeed) {
       g.xp -= g.xpNeed;
@@ -814,6 +1156,7 @@ export function createGame() {
       g.xpNeed = Math.floor(TUNE.xpBase + TUNE.xpLinear * g.level + TUNE.xpQuad * g.level * g.level);
       g.pendingLevels++;
     }
+    if (g.level >= 20) g.unlockAch("level20");
     if (g.pendingLevels > 0 && g.onLevelUp) g.onLevelUp();
   };
 
@@ -842,6 +1185,7 @@ export function createGame() {
     g.over = true; g.won = win;
     g.hitStop = 0; g.stopCool = 0; // 終了瞬間の凍結を解いて結果表示へ
     g.bankRun(); // ラン中で拾ったコインを永続貯金へ入金（二重入金なし）
+    flushAch();
     g.lastBest = recordBest({ time: g.time, level: g.level, kills: g.kills });
     if (win) sfx.win(); else sfx.over();
     if (g.onEnd) g.onEnd(win);

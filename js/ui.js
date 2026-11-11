@@ -13,6 +13,8 @@ const el = {
   bossWrap: $("bossWrap"), bossFill: $("bossFill"), banner: $("banner"),
   dashBtn: $("dashBtn"), dashFill: $("dashFill"), shrineInfo: $("shrineInfo"),
   curseList: $("curseList"), bestLine: $("bestLine"), continueBtn: $("continueBtn"),
+  weatherInfo: $("weatherInfo"), styleList: $("styleList"), cardActions: $("cardActions"),
+  achModal: $("achModal"), achBody: $("achBody"), dailyBestLine: $("dailyBestLine"), copyBtn: $("copyBtn"),
 };
 
 const fmt = (t) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
@@ -49,6 +51,11 @@ export function updateHUD(g) {
     const frac = g.dashCdT > 0 ? 1 - Math.max(0, g.dashCdT) / TUNE.dashCd : 1;
     el.dashBtn.classList.toggle("ready", frac >= 1);
     if (el.dashFill) el.dashFill.style.height = `${Math.round(frac * 100)}%`;
+  }
+  // 天候インジケータ
+  if (el.weatherInfo && g.weatherName) {
+    const wn = `天候：${g.weatherName()}`;
+    if (el.weatherInfo.textContent !== wn) el.weatherInfo.textContent = wn;
   }
   // 神殿の進行度
   if (el.shrineInfo) {
@@ -131,7 +138,10 @@ export function showEnd(win, g) {
     `レベル <b>${g.level}</b>${lb ? nr(lb.isNew.level) : ""}<br>` +
     bankLine +
     (g.relics && g.relics.length ? `レリック <b>${g.relics.length}個</b><br>` : "") +
-    `武器 <b>${g.weapons.map((w) => WEAPONS[w.id].name).join(" / ")}</b>`;
+    `武器 <b>${g.weapons.map((w) => WEAPONS[w.id].name).join(" / ")}</b>` +
+    dmgBreakdownHtml(g);
+  // デイリーのときだけ「結果をコピー」を出す
+  if (el.copyBtn) el.copyBtn.classList.toggle("hidden", !g.daily);
   // 勝利時のみ「エンドレスで続ける」を出す（既にエンドレス中の死亡では出さない）
   if (el.continueBtn) el.continueBtn.classList.toggle("hidden", !(win && g.wonOnce && !g.endless));
   el.ending.classList.remove("hidden");
@@ -194,4 +204,159 @@ export function renderShop(onBuy) {
     row.appendChild(btn);
     el.shopList.appendChild(row);
   }
+}
+
+// ---- Gemini改善：ダメージ内訳／カード操作ボタン／スタイル選択／実績モーダル ----
+const DMG_SRC_NAMES = {
+  thorns: "荊棘の冠",
+  echo: "残響の鈴",
+  gemBomb: "爆裂ジェム",
+  flame: "バーンスピリット（燃焼）",
+  melt: "融解",
+  burst: "誘爆",
+  bomb: "聖水ボム",
+  other: "その他",
+};
+
+/** 1. ダメージ内訳チャート HTML を生成 */
+export function dmgBreakdownHtml(g) {
+  if (!g || !g.dmgStats) return "";
+  const entries = Object.entries(g.dmgStats).filter(([, v]) => v && v.dmg > 0);
+  if (entries.length === 0) return "";
+  entries.sort((a, b) => b[1].dmg - a[1].dmg);
+  const total = entries.reduce((sum, [, v]) => sum + v.dmg, 0);
+  if (total <= 0) return "";
+  const maxDmg = entries[0][1].dmg;
+  const rows = entries
+    .slice(0, 6)
+    .map(([srcId, v]) => {
+      const name = (WEAPONS[srcId] && WEAPONS[srcId].name) || DMG_SRC_NAMES[srcId] || srcId;
+      const barPct = Math.round((v.dmg / maxDmg) * 100);
+      const dmgVal = Math.round(v.dmg);
+      const sharePct = Math.round((v.dmg / total) * 100);
+      return (
+        `<div class="dmgRow">` +
+        `<span class="dmgName">${name}</span>` +
+        `<div class="dmgBar"><i style="width:${barPct}%"></i></div>` +
+        `<span class="dmgVal">${dmgVal}（${sharePct}%）</span>` +
+        `</div>`
+      );
+    })
+    .join("");
+  return `<div class="dmgChart">${rows}</div>`;
+}
+
+/** 2. レベルアップ時のリロール・バニッシュ操作ボタンを表示 */
+export function showCardActions(state, onReroll, onBanish) {
+  const box = $("cardActions");
+  if (!box) return;
+  box.innerHTML = "";
+  const rerolls = state && typeof state.rerolls === "number" ? state.rerolls : 0;
+  const banishes = state && typeof state.banishes === "number" ? state.banishes : 0;
+
+  const rerollBtn = document.createElement("button");
+  rerollBtn.type = "button";
+  rerollBtn.className = "cardActBtn";
+  rerollBtn.textContent = `↻ リロール（残り${rerolls}）`;
+  rerollBtn.disabled = rerolls <= 0;
+  rerollBtn.onclick = () => {
+    if (onReroll) onReroll();
+  };
+
+  const banishBtn = document.createElement("button");
+  banishBtn.type = "button";
+  banishBtn.className = "cardActBtn";
+  banishBtn.textContent = `✕ バニッシュ（残り${banishes}）`;
+  banishBtn.disabled = banishes <= 0;
+  banishBtn.onclick = () => {
+    if (onBanish) onBanish();
+  };
+
+  box.appendChild(rerollBtn);
+  box.appendChild(banishBtn);
+}
+
+/** 3. リロール・バニッシュ操作欄をクリア */
+export function hideCardActions() {
+  const box = $("cardActions");
+  if (!box) return;
+  box.innerHTML = "";
+}
+
+/** 4. タイトル画面のスタイル選択ボタン一覧を描画 */
+export function renderStyles(styles, currentId, onPick) {
+  const box = $("styleList");
+  if (!box) return;
+  box.innerHTML = "";
+  for (const s of styles) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "styleBtn" + (s.id === currentId ? " on" : "");
+    btn.innerHTML =
+      `<span class="styleName">${s.name}</span>` +
+      `<span class="styleTrait">${s.traitDesc}</span>` +
+      `<span class="styleStart">初期: ${(WEAPONS[s.startWeapon] && WEAPONS[s.startWeapon].name) || s.startWeapon}</span>`;
+    btn.onclick = () => {
+      if (onPick) onPick(s.id);
+    };
+    box.appendChild(btn);
+  }
+}
+
+/** 5. 実績・敵図鑑・進化レシピモーダルの中身を描画 */
+export function renderAchModal(data) {
+  const box = $("achBody");
+  if (!box || !data) return;
+
+  const achHtml = (data.achievements || [])
+    .map((a) => {
+      const icon = a.unlocked ? "✓" : "🔒";
+      const cls = "achItem" + (a.unlocked ? " got" : "");
+      const bonus = a.bonus ? `<span class="achBonus">${a.bonus}</span>` : "";
+      return (
+        `<div class="${cls}">` +
+        `<span class="achIcon">${icon}</span>` +
+        `<div class="achMain">` +
+        `<div class="achName">${a.name}</div>` +
+        `<div class="achDesc">${a.desc}</div>` +
+        `</div>` +
+        bonus +
+        `</div>`
+      );
+    })
+    .join("");
+
+  const enemyHtml = (data.enemies || [])
+    .map((e) => {
+      const known = e.kills > 0;
+      const name = known ? e.name : "？？？";
+      const hint = known && e.hint ? `<div class="dexHint">${e.hint}</div>` : "";
+      return (
+        `<div class="dexItem${known ? " got" : ""}">` +
+        `<div class="dexHead">` +
+        `<span class="dexName">${name}</span>` +
+        `<span class="dexKills">${e.kills} KILLS</span>` +
+        `</div>` +
+        hint +
+        `</div>`
+      );
+    })
+    .join("");
+
+  const evoHtml = (data.evos || [])
+    .map((ev) => {
+      const name = ev.seen ? ev.name : "？？？（未発見）";
+      return (
+        `<div class="evoItem${ev.seen ? " got" : ""}">` +
+        `<span class="evoName">${name}</span>` +
+        `<span class="evoRecipe">${ev.recipe}</span>` +
+        `</div>`
+      );
+    })
+    .join("");
+
+  box.innerHTML =
+    `<section class="achSection"><h3>実績</h3><div class="achList">${achHtml}</div></section>` +
+    `<section class="achSection"><h3>図鑑</h3><div class="dexList">${enemyHtml}</div></section>` +
+    `<section class="achSection"><h3>進化レシピ</h3><div class="evoList">${evoHtml}</div></section>`;
 }

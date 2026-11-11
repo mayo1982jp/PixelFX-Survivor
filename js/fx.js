@@ -63,6 +63,7 @@ import * as runeCircle from "../vendor/pixelfx/fx/arcane/rune-circle.js";
 import * as magicCircleCast from "../vendor/pixelfx/fx/arcane/magic-circle-cast.js";
 import * as timeStop from "../vendor/pixelfx/fx/arcane/time-stop.js";
 import * as portal from "../vendor/pixelfx/fx/arcane/portal.js";
+import * as arcaneBeam from "../vendor/pixelfx/fx/arcane/arcane-beam.js";
 import * as rain from "../vendor/pixelfx/fx/weather/rain.js";
 import * as snow from "../vendor/pixelfx/fx/weather/snow.js";
 import * as cherryBlossoms from "../vendor/pixelfx/fx/weather/cherry-blossoms.js";
@@ -85,6 +86,7 @@ export const FX = {
   spawnPortal, summonRise, soulRise, shatterDeath,
   runeCircle, magicCircleCast, timeStop, portal,
   rain, snow, cherryBlossoms, fallingLeaves, godRays, storm,
+  arcaneBeam, // ラスボスのビーム攻撃
 };
 
 // 色だけ変えたい時のための差し色パレット（resolveOptions が本家の長さへ再サンプルしてくれる）
@@ -94,6 +96,7 @@ export const PAL = {
   xpBlue: ["#08122a", "#0f2a52", "#1a4a8a", "#2f7cc2", "#62b8f4", "#a6e0ff", "#dcf4ff", "#ffffff"],
   xpGold: ["#2a1c04", "#543808", "#8a6010", "#c9901c", "#f4c03a", "#ffe27a", "#fff4c0", "#ffffff"],
   heart: undefined, // 既定の赤を使わせる
+  finalBoss: ["#0a0206", "#2a0410", "#570d1e", "#8f1230", "#c22447", "#e8506e", "#ff8fa0", "#ffd6dd", "#ffffff"], // ラスボス用 赤黒
 };
 
 /**

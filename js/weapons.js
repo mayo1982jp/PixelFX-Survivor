@@ -24,7 +24,7 @@ export const WEAPONS = {
       const n = this.count(lv), spread = 0.22;
       for (let i = 0; i < n; i++) {
         const a = base + (i - (n - 1) / 2) * spread;
-        g.addProjectile(p.x, p.y - 12, a, 110, 1.7, this.dmg(lv), Math.floor(lv / 4));
+        g.addProjectile(p.x, p.y - 12, a, 110, 1.7, this.dmg(lv), Math.floor(lv / 4), undefined, "wand");
       }
       sfx.shot();
     },
@@ -42,7 +42,7 @@ export const WEAPONS = {
     fire(g, lv) {
       const p = g.player;
       g.fxWorld.spawn(FX.snowflakeBurst, p.x, p.y, { seed: g.rseed(), count: 6 + lv });
-      g.damageArea(p.x, p.y - 8, this.radius(lv), this.dmg(lv), { slow: 1.2 + 0.15 * lv, sfx: sfx.nova });
+      g.damageArea(p.x, p.y - 8, this.radius(lv), this.dmg(lv), { slow: 1.2 + 0.15 * lv, sfx: sfx.nova, kind: "ice", src: "nova" });
     },
   },
 
@@ -63,7 +63,7 @@ export const WEAPONS = {
         if (!e) continue;
         any = true;
         g.fxTop.spawn(FX.lightningStrike, e.x, e.y, { seed: g.rseed() });
-        g.delayed.push({ t: 0.76, x: e.x, y: e.y, r: 22 + lv, dmg: this.dmg(lv), kind: "bolt" });
+        g.delayed.push({ t: 0.76, x: e.x, y: e.y, r: 22 + lv, dmg: this.dmg(lv), kind: "bolt", src: "thunder" });
       }
       if (any) sfx.zap();
     },
@@ -82,7 +82,7 @@ export const WEAPONS = {
       const e = g.nearestEnemy(p.x, p.y, 130) || g.randomEnemy(130);
       if (!e) return;
       g.fxTop.spawn(FX.smite, e.x, e.y, { seed: g.rseed() });
-      g.delayed.push({ t: 0.54, x: e.x, y: e.y, r: 20 + 2 * lv, dmg: this.dmg(lv), kind: "smite" });
+      g.delayed.push({ t: 0.54, x: e.x, y: e.y, r: 20 + 2 * lv, dmg: this.dmg(lv), kind: "smite", src: "smite", electrify: 3 });
       sfx.smite();
     },
   },
@@ -101,7 +101,7 @@ export const WEAPONS = {
       if (!c) return;
       g.fxTop.spawn(FX.starFall, c.x, c.y, { seed: g.rseed() });
       for (let i = 0; i < this.hits(lv); i++)
-        g.delayed.push({ t: 0.6 + i * 0.5, x: c.x + (Math.random() - 0.5) * 40, y: c.y + (Math.random() - 0.5) * 24, r: 30 + 2 * lv, dmg: this.dmg(lv), kind: "star" });
+        g.delayed.push({ t: 0.6 + i * 0.5, x: c.x + (Math.random() - 0.5) * 40, y: c.y + (Math.random() - 0.5) * 24, r: 30 + 2 * lv, dmg: this.dmg(lv), kind: "star", src: "stars" });
       sfx.star();
     },
   },
@@ -121,6 +121,7 @@ export const WEAPONS = {
         if (Math.hypot(e.x - p.x, e.y - p.y) <= this.radius(lv)) e.burn = Math.max(e.burn, 2.6);
       });
       g.burnDps = this.dps(lv);
+      g.burnSrc = "flame";
     },
   },
 };
@@ -149,7 +150,7 @@ WEAPONS.wandEvo = {
     g.fxTop.spawn(FX.arcaneMissiles, p.x, p.y - 12, { seed: g.rseed(), flip: !p.flip });
     for (let i = 0; i < n; i++) {
       const a = base + (i - (n - 1) / 2) * spread;
-      g.addProjectile(p.x, p.y - 12, a, 125, 1.8, this.dmg(lv), Math.floor(lv / 4) + 1, FX.magicMissile);
+      g.addProjectile(p.x, p.y - 12, a, 125, 1.8, this.dmg(lv), Math.floor(lv / 4) + 1, FX.magicMissile, "wandEvo");
     }
     sfx.shot();
   },
@@ -163,8 +164,8 @@ WEAPONS.novaEvo = {
     const p = g.player;
     g.fxWorld.spawn(FX.snowflakeBurst, p.x, p.y, { seed: g.rseed(), count: 10 + lv });
     g.fxWorld.spawn(FX.frostNova, p.x, p.y - 4, { seed: g.rseed() }); // 進化演出：本物の frost-nova を重ねる
-    g.damageArea(p.x, p.y - 8, this.radius(lv), this.dmg(lv), { slow: 3.0, sfx: sfx.nova });
-    g.delayed.push({ t: 0.5, x: p.x, y: p.y, r: this.radius(lv) * 0.8, dmg: Math.round(this.dmg(lv) * 0.6), kind: "nova2", slow: 2.0 });
+    g.damageArea(p.x, p.y - 8, this.radius(lv), this.dmg(lv), { slow: 3.0, sfx: sfx.nova, kind: "ice", src: "novaEvo" });
+    g.delayed.push({ t: 0.5, x: p.x, y: p.y, r: this.radius(lv) * 0.8, dmg: Math.round(this.dmg(lv) * 0.6), kind: "nova2", slow: 2.0, src: "novaEvo" });
   },
 };
 WEAPONS.thunderEvo = {
@@ -180,7 +181,7 @@ WEAPONS.thunderEvo = {
       if (!e) continue;
       any = true;
       g.fxTop.spawn(FX.lightningStrike, e.x, e.y, { seed: g.rseed() });
-      g.delayed.push({ t: 0.76, x: e.x, y: e.y, r: 24 + lv, dmg: this.dmg(lv), kind: "boltChain" });
+      g.delayed.push({ t: 0.76, x: e.x, y: e.y, r: 24 + lv, dmg: this.dmg(lv), kind: "boltChain", src: "thunderEvo" });
     }
     if (any) sfx.zap();
   },
@@ -195,7 +196,7 @@ WEAPONS.smiteEvo = {
     if (!e) return;
     g.fxTop.spawn(FX.holyPillar, e.x, e.y, { seed: g.rseed() }); // 進化演出：聖光の柱
     g.fxTop.spawn(FX.manaBurst, e.x, e.y - 10, { seed: g.rseed() });
-    g.delayed.push({ t: 0.54, x: e.x, y: e.y, r: 36 + 2 * lv, dmg: this.dmg(lv), kind: "smite" });
+    g.delayed.push({ t: 0.54, x: e.x, y: e.y, r: 36 + 2 * lv, dmg: this.dmg(lv), kind: "smite", src: "smiteEvo", electrify: 3 });
     sfx.smite();
   },
 };
@@ -210,7 +211,7 @@ WEAPONS.starsEvo = {
     g.fxTop.spawn(FX.starFall, c.x, c.y, { seed: g.rseed() });
     g.fxTop.spawn(FX.meteor, c.x, c.y - 30, { seed: g.rseed() }); // 進化演出：隕石が降り注ぐ
     for (let i = 0; i < this.hits(lv); i++)
-      g.delayed.push({ t: 0.6 + i * 0.45, x: c.x + (Math.random() - 0.5) * 60, y: c.y + (Math.random() - 0.5) * 36, r: 36 + 2 * lv, dmg: this.dmg(lv), kind: "star" });
+      g.delayed.push({ t: 0.6 + i * 0.45, x: c.x + (Math.random() - 0.5) * 60, y: c.y + (Math.random() - 0.5) * 36, r: 36 + 2 * lv, dmg: this.dmg(lv), kind: "star", src: "starsEvo" });
     sfx.star();
   },
 };
@@ -225,6 +226,7 @@ WEAPONS.flameEvo = {
       if (Math.hypot(e.x - p.x, e.y - p.y) <= this.radius(lv)) e.burn = Math.max(e.burn, 4.0);
     });
     g.burnDps = this.dps(lv);
+    g.burnSrc = "flameEvo";
     // 進化演出（見た目のみ・数値は不変）：3回に1回、範囲内の敵の上に炎柱。6回に1回は足元に炎の輪
     g.flameEvoTick = (g.flameEvoTick || 0) + 1;
     if (g.flameEvoTick % 3 === 0) {
@@ -308,9 +310,23 @@ const PASSIVE_ORDER = Object.keys(PASSIVES);
 
 // ---- レベルアップ時の 3 択 ----------------------------------------------------
 
+export const MAX_WEAPON_SLOTS = 4;
+export const MAX_PASSIVE_SLOTS = 4;
+
+/** 属性シナジーのヒント（レベルアップカード用） */
+const SYNERGY_HINTS = {
+  wand: "シナジー：燃焼中の敵を倒すと誘爆",
+  nova: "シナジー：氷×雷で氷結粉砕／燃焼に氷で融解",
+  thunder: "シナジー：減速中の敵へ雷+50%（氷結粉砕）",
+  smite: "シナジー：着弾した敵は感電（被クリ率+15%）",
+  stars: "シナジー：燃焼中の敵を倒すと誘爆",
+  flame: "シナジー：燃焼中に氷を当てると融解／弾・星で誘爆",
+};
+
 /** 現在選択可能なアップグレードから 3 つのカードを作る */
 export function makeChoices(g) {
   const owned = g.weapons; // [{id, lv}]
+  const banished = g.banished || [];
   const stats = g.player.stats;
   const dpsNow = totalDps(stats, owned);
   const dpsAfter = (patch) => totalDps({ ...stats, ...patch }, owned);
@@ -350,27 +366,35 @@ export function makeChoices(g) {
       });
     }
   }
-  for (const id of WEAPON_ORDER)
-    if (!owned.some((w) => w.id === id) && owned.length < WEAPON_ORDER.length)
-      pool.push({
-        kind: "new", id, title: WEAPONS[id].name, desc: WEAPONS[id].desc(0), now: "新武器",
-        atk: `攻撃力 ${fmtVal(attackPower(id, 1) * stats.dmgMult)}${unit(id)}`,
-        dps: `DPS ${fmtVal(weaponDps(stats, id, 1))}`,
-      });
+  if (owned.length < MAX_WEAPON_SLOTS) {
+    for (const id of WEAPON_ORDER) {
+      const alreadyOwned = owned.some((w) => w.id === id || WEAPONS[w.id].base === id);
+      if (!alreadyOwned && !banished.includes(id) && (!g.weaponsOnly || g.weaponsOnly.includes(id))) {
+        pool.push({
+          kind: "new", id, title: WEAPONS[id].name, desc: WEAPONS[id].desc(0), now: "新武器",
+          atk: `攻撃力 ${fmtVal(attackPower(id, 1) * stats.dmgMult)}${unit(id)}`,
+          dps: `DPS ${fmtVal(weaponDps(stats, id, 1))}`,
+        });
+      }
+    }
+  }
   for (const id of PASSIVE_ORDER) {
     const lv = g.passives[id] || 0;
-    if (lv < PASSIVES[id].max && g.passiveCount() < 5) {
-      const mk = PASSIVE_PATCH[id];
-      pool.push({
-        kind: "passive", id, title: PASSIVES[id].name, desc: PASSIVES[id].desc, now: `Lv ${lv} → ${lv + 1}`,
-        atk: id === "might" ? "攻撃力 +12%（全武器共通）" : "",
-        dps: mk ? `DPS ${fmtVal(dpsNow)} → ${fmtVal(dpsAfter(mk(stats)))}` : "",
-      });
-    }
+    if (lv >= PASSIVES[id].max) continue;
+    if (lv === 0 && (g.passiveCount() >= MAX_PASSIVE_SLOTS || banished.includes(id))) continue;
+    const mk = PASSIVE_PATCH[id];
+    pool.push({
+      kind: "passive", id, title: PASSIVES[id].name, desc: PASSIVES[id].desc, now: `Lv ${lv} → ${lv + 1}`,
+      atk: id === "might" ? "攻撃力 +12%（全武器共通）" : "",
+      dps: mk ? `DPS ${fmtVal(dpsNow)} → ${fmtVal(dpsAfter(mk(stats)))}` : "",
+    });
   }
   // shuffle → 先頭3つ（進化カードは必ず含める）
   for (let i = pool.length - 1; i > 0; i--) { const j = (Math.random() * (i + 1)) | 0; [pool[i], pool[j]] = [pool[j], pool[i]]; }
   const picks = [...evoPicks, ...pool].slice(0, 3);
+  for (const pk of picks) { // シナジーのヒント（進化ヒントが無いカードにだけ付ける）
+    if ((pk.kind === "weapon" || pk.kind === "new") && !pk.hint && SYNERGY_HINTS[pk.id]) pk.hint = SYNERGY_HINTS[pk.id];
+  }
   return picks.length ? picks : [{ kind: "heal", id: "heal", title: "英霊の息吹", desc: "HPを全回復する", now: "" }];
 }
 
@@ -414,3 +438,49 @@ export function applyRelicChoice(g, c) {
   } else if (c.kind === "heal") g.player.hp = g.player.maxHp;
 }
 export const hasRelic = (g, id) => !!(g.relics && g.relics.includes(id));
+
+// ---- リロール／バニッシュ（レベルアップ画面の操作） ----
+/** リロールを実行して新しい選択肢を返す（残り0以下なら null） */
+export function rerollChoices(g) {
+  if (!g.rerolls || g.rerolls <= 0) return null;
+  g.rerolls--;
+  return makeChoices(g);
+}
+
+/** バニッシュ可能な未所持アイテム一覧をカード形式で返す（残り0以下なら空配列） */
+export function banishChoices(g) {
+  if (!g.banishes || g.banishes <= 0) return [];
+  const owned = g.weapons;
+  const banished = g.banished || [];
+  const list = [];
+  if (owned.length < MAX_WEAPON_SLOTS) {
+    for (const id of WEAPON_ORDER) {
+      const alreadyOwned = owned.some((w) => w.id === id || WEAPONS[w.id].base === id);
+      if (!alreadyOwned && !banished.includes(id)) {
+        list.push({
+          kind: "banish", id, title: `${WEAPONS[id].name}を除外`,
+          desc: WEAPONS[id].desc(0), now: "除外する", atk: "", dps: "", hint: "",
+        });
+      }
+    }
+  }
+  if (g.passiveCount() < MAX_PASSIVE_SLOTS) {
+    for (const id of PASSIVE_ORDER) {
+      const lv = g.passives[id] || 0;
+      if (lv === 0 && lv < PASSIVES[id].max && !banished.includes(id)) {
+        list.push({
+          kind: "banish", id, title: `${PASSIVES[id].name}を除外`,
+          desc: PASSIVES[id].desc, now: "除外する", atk: "", dps: "", hint: "",
+        });
+      }
+    }
+  }
+  return list;
+}
+
+/** バニッシュ選択を game に反映する */
+export function applyBanish(g, c) {
+  if (!g.banished) g.banished = [];
+  if (!g.banished.includes(c.id)) g.banished.push(c.id);
+  g.banishes--;
+}

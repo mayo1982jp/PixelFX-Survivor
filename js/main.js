@@ -2,7 +2,7 @@
 // 世界（canvas 内）はすべて pixelfx のフレームバッファ経由で描画される。
 import { createGame, setViewport } from "./game.js";
 import { render, updateAmbient, resetAmbient, resetFrame } from "./render.js";
-import { makeChoices, applyChoice, makeRelicChoices, applyRelicChoice } from "./weapons.js";
+import { makeChoices, applyChoice, makeRelicChoices, applyRelicChoice, rerollChoices, banishChoices, applyBanish, EVOLUTIONS, PASSIVES, WEAPONS } from "./weapons.js";
 import { FX } from "./fx.js";
 import { initAudio, sfx } from "./sfx.js";
 import { music } from "./music.js";
@@ -10,6 +10,8 @@ import * as meta from "./meta.js";
 import * as preview from "./preview.js";
 import * as ui from "./ui.js";
 import { initDebug } from "./debug.js";
+import { getDailyConfig, summarizeDaily, todayStr, getDailyBest, recordDailyBest } from "./daily.js";
+import { saveStyleId, loadStyleId, STYLES } from "./witch.js";
 
 const canvas = document.getElementById("screen");
 const ctx = canvas.getContext("2d");
@@ -17,7 +19,7 @@ ctx.imageSmoothingEnabled = false;
 
 const game = createGame();
 window.game = game; // デバッグ用フック（コンソールから状態を覗ける）
-window.__ps = { game, music }; // 検証用：BGM 状態などを外から確認できる
+window.__ps = { game, music, meta, daily: { getDailyConfig, summarizeDaily, todayStr, getDailyBest, recordDailyBest } }; // 検証用
 initDebug(game); // レベルデザイン調整パネル（F1 / T でオンオフ）
 let state = "title"; // title | playing | levelup | pause | end
 let choices = [];
@@ -42,6 +44,8 @@ addEventListener("keydown", (ev) => {
   if (ev.code === "Space" && state === "playing") { dashPressed = true; ev.preventDefault(); }
   if (ev.code === "KeyP" || ev.code === "Escape") togglePause();
   if (state === "levelup" && ["Digit1", "Digit2", "Digit3"].includes(ev.code)) choose(parseInt(ev.code.slice(-1)) - 1);
+  if (state === "levelup" && cardMode === "level" && ev.code === "KeyR") doReroll();
+  if (state === "levelup" && cardMode === "level" && ev.code === "KeyB") openBanish();
   if (state === "title" && (ev.code === "Enter" || ev.code === "Space")) start();
   if (state === "end" && (ev.code === "Enter" || ev.code === "Space")) start();
 });
@@ -204,6 +208,10 @@ game.onLevelUp = () => {
 game.onEnd = (win) => {
   clearStick(); state = "end";
   if (!win) music.stop(); // 敗北で BGM 停止（勝利時は流れ続け、エンドレスへ繋ぐ）
+  if (game.daily) { // デイリーベストは通常ベストと分離して保存
+    recordDailyBest(game.daily.date, { clear: win, time: Math.floor(game.time), level: game.level, kills: game.kills });
+    renderDailyBest();
+  }
   ui.showEnd(win, game); ui.renderBest();
 };
 game.onBanner = (text) => ui.showBanner(text);
@@ -222,17 +230,55 @@ function openCards(mode = "level") {
   pad.cursor = 0; pad.held = false;
   ui.setCardCursor(pad.connected ? 0 : -1); // コントローラーを使っているときだけカーソルを出す
   preview.start(entries); // カード内で見本エフェクトをループ再生
+  if (mode === "level" && ui.showCardActions) ui.showCardActions(game, doReroll, openBanish);
+  else if (ui.hideCardActions) ui.hideCardActions();
+}
+
+/** リロール（ラン中2回）：現在の選択肢を引き直す */
+function doReroll() {
+  if (state !== "levelup" || cardMode !== "level") return;
+  const next = rerollChoices(game);
+  if (!next) return;
+  choices = next;
+  const entries = ui.showCards(choices, choose);
+  pad.cursor = 0; pad.held = false;
+  ui.setCardCursor(pad.connected ? 0 : -1);
+  preview.start(entries);
+  sfx.select();
+  if (ui.showCardActions) ui.showCardActions(game, doReroll, openBanish);
+}
+
+/** バニッシュ画面（ラン中2回）：除外候補のカードを出す */
+function openBanish() {
+  if (state !== "levelup" || cardMode !== "level" || game.banishes <= 0) return;
+  const pool = banishChoices(game);
+  if (!pool.length) return;
+  cardMode = "banish";
+  choices = pool;
+  const entries = ui.showCards(choices, choose);
+  pad.cursor = 0; pad.held = false;
+  ui.setCardCursor(pad.connected ? 0 : -1);
+  preview.start(entries);
+  if (ui.hideCardActions) ui.hideCardActions();
+  ui.showBanner("除外するものを選んでください（このランでは出なくなります）");
 }
 
 function choose(i) {
   if (state !== "levelup" || !choices[i]) return;
   ui.setCardCursor(-1);
+  if (cardMode === "banish") {
+    applyBanish(game, choices[i]);
+    sfx.select();
+    openCards("level"); // レベルアップの選択肢へ戻る（pendingLevels は消費しない）
+    return;
+  }
   if (cardMode === "relic") {
     applyRelicChoice(game, choices[i]);
     sfx.select();
     sfx.relic(); // レリック取得の専用音（ZzFX）
+    if (game.relics.length >= 5) game.unlockAch("relic5");
     if (game.pendingLevels > 0) openCards("level"); // 宝箱の直後にレベルアップが控えていれば続けて出す
-    else { ui.hideCards(); preview.stop(); state = "playing"; }
+    else { ui.hideCards(); if (ui.hideCardActions) ui.hideCardActions(); preview.stop(); state = "playing"; }
     return;
   }
   const chosen = choices[i];
@@ -242,9 +288,12 @@ function choose(i) {
   if (chosen.kind === "evolve") { // 進化の瞬間：魔法陣＋ファンファーレ
     sfx.evolve();
     game.fxTop.spawn(FX.magicCircleCast, game.player.x, game.player.y - 8, { seed: game.rseed() });
+    meta.addEvoSeen(chosen.id); // 図鑑に発見済み進化として記録
+    game.unlockAch("firstEvo");
+    if (chosen.id === "thunderEvo") game.unlockAch("evolveThunder");
   }
   if (game.pendingLevels > 0) openCards(); // 連続レベルアップは次の 3 択へ
-  else { ui.hideCards(); preview.stop(); state = "playing"; }
+  else { ui.hideCards(); if (ui.hideCardActions) ui.hideCardActions(); preview.stop(); state = "playing"; }
 }
 
 function togglePause() {
@@ -265,6 +314,7 @@ function backToTitle() {
   ui.renderShop(buyMeta); // ラン終了後の貯金増加を反映
   ui.renderCurses(toggleCurse);
   ui.renderBest();
+  renderDailyBest();
 }
 
 function toggleCurse(id) {
@@ -280,16 +330,74 @@ function continueEndless() {
   music.start();
 }
 
-function start() {
+function start(dailyMode = false) {
   initAudio();
   music.start(); // BGM 開始（有効設定のときだけ。初回はレンダリングに約1秒）
   clearStick();
   game.bankRun(); // 前ラン（勝利画面）未入金分があれば一度だけ入金してからリセット
-  game.reset(); // meta.js の購入レベルが初期ステータスへ反映される
+  // デイリーは日付シードで決定的なモディファイアを持つ。永続ショップ強化は無効（game.reset 内）
+  const cfg = dailyMode ? getDailyConfig() : null;
+  const daily = cfg ? { date: todayStr(), cfg, summary: summarizeDaily(cfg) } : null;
+  game.reset(daily); // meta.js の購入レベルが初期ステータスへ反映される
   resetAmbient();
   preview.stop();
   ui.hideCards(); ui.hideEnd(); ui.showPause(false); ui.showTitle(false); ui.showHud(true);
+  if (daily && ui.showBanner) ui.showBanner(`今日のチャレンジ：${cfg.modifiers.map((m) => m.name).join("・")}`);
   state = "playing";
+}
+
+/** タイトルの「今日のデイリーベスト」行 */
+function renderDailyBest() {
+  const line = document.getElementById("dailyBestLine");
+  if (!line) return;
+  const db = getDailyBest(todayStr());
+  const f = (t) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  line.textContent = db
+    ? `今日のデイリー BEST：${db.clear ? "クリア" : "敗北"} ${f(db.time)} ／ Lv ${db.level} ／ ${db.kills} KILLS`
+    : "今日のデイリー：未挑戦";
+}
+
+/** スタイル選択（タイトル）：保存してタイトル背景の魔女にも即反映 */
+function onStylePick(id) {
+  saveStyleId(id);
+  game.reset(); // スタイルの初期武器・特性・パレットを反映
+  ui.renderStyles(STYLES, loadStyleId(), onStylePick);
+  sfx.select();
+}
+
+/** 実績・図鑑モーダルを開く（meta の保存データから表示用データを組む） */
+function openAch() {
+  const ach = meta.getAch();
+  const data = {
+    achievements: Object.values(meta.ACHIEVEMENTS).map((a) => ({ ...a, unlocked: ach.unlocked.includes(a.id) })),
+    enemies: meta.ENEMY_INFO.map((e) => ({ ...e, kills: ach.enemyKills[e.id] || 0 })),
+    evos: Object.entries(EVOLUTIONS).map(([baseId, ev]) => ({
+      name: WEAPONS[ev.evoId].name,
+      recipe: `${WEAPONS[baseId].name} Lv8 ＋ ${PASSIVES[ev.passive].name} Lv2`,
+      seen: ach.evoSeen.includes(ev.evoId),
+    })),
+  };
+  ui.renderAchModal(data);
+  document.getElementById("achModal").classList.remove("hidden");
+}
+
+/** デイリー結果の共有テキストをクリップボードへ */
+function copyDailyResult() {
+  if (!game.daily) return;
+  const f = (t) => `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
+  const mods = game.daily.cfg ? game.daily.cfg.modifiers.map((m) => m.name).join("・") : "";
+  const text = `🏯 PixelFX Survivor デイリー ${game.daily.date}｜${mods}｜${game.won ? "クリア" : "敗北"} ⏱${f(game.time)} Lv${game.level} ${game.kills}KILLS`;
+  const done = () => { const b = document.getElementById("copyBtn"); if (b) { const o = b.textContent; b.textContent = "コピーしました！"; setTimeout(() => { b.textContent = o; }, 1600); } };
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); done(); } catch (e) { /* コピー不可環境では無言で諦める */ }
+  ta.remove();
 }
 
 // ---- ♪ BGM トグル（タイトル／ポーズ両方。設定は localStorage に保存される） --------
@@ -310,8 +418,12 @@ document.getElementById("bgmBtnTitle").onclick = onBgmToggle;
 document.getElementById("bgmBtnPause").onclick = onBgmToggle;
 syncBgmButtons();
 
-document.getElementById("startBtn").onclick = start;
-document.getElementById("retryBtn").onclick = start;
+document.getElementById("startBtn").onclick = () => start(false);
+document.getElementById("dailyBtn").onclick = () => start(true);
+document.getElementById("retryBtn").onclick = () => start(!!game.daily);
+document.getElementById("achBtn").onclick = openAch;
+document.getElementById("achCloseBtn").onclick = () => document.getElementById("achModal").classList.add("hidden");
+document.getElementById("copyBtn").onclick = copyDailyResult;
 document.getElementById("toTitleBtn").onclick = backToTitle;
 document.getElementById("continueBtn").onclick = continueEndless;
 document.getElementById("pauseBtn").onclick = () => togglePause();
@@ -384,4 +496,6 @@ game.reset();
 ui.renderShop(buyMeta); // タイトル常設のショップを初期描画
 ui.renderCurses(toggleCurse);
 ui.renderBest();
+ui.renderStyles(STYLES, loadStyleId(), onStylePick); // スタイル選択の初期描画
+renderDailyBest();
 requestAnimationFrame(loop);

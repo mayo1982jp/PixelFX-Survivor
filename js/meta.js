@@ -92,3 +92,94 @@ export function buy(id) {
   persist();
   return true;
 }
+
+// ---- 実績・図鑑システム ----
+const ACH_KEY = "pixelSurvivor.ach.v1";
+
+export const ACHIEVEMENTS = {
+  firstClear: { name: "初クリア", desc: "初めて夜明けを迎えた", bonus: 50 },
+  firstEvo: { name: "初進化", desc: "初めて武器を進化させた", bonus: 50 },
+  finalBossDown: { name: "ラスボス撃破", desc: "夜明けの守護者を倒した", bonus: 50 },
+  noDashClear: { name: "ノーダッシュクリア", desc: "ダッシュを使わずクリア", bonus: 50 },
+  curseClear: { name: "呪いクリア", desc: "呪いを1つ以上付けてクリア", bonus: 50 },
+  allCurseClear: { name: "全呪いクリア", desc: "呪い3種全て付けてクリア", bonus: 50 },
+  kills1000: { name: "累計1000キル", desc: "累計で敵を1000体倒した", bonus: 50 },
+  kills100run: { name: "1ラン100キル", desc: "1回のランで敵を100体倒した", bonus: 50 },
+  kills500run: { name: "1ラン500キル", desc: "1回のランで敵を500体倒した", bonus: 50 },
+  butterfly15: { name: "蝶ハンター", desc: "1ランで蝶を15匹倒した", bonus: 50 },
+  endless400: { name: "エンドレス400秒", desc: "エンドレスで400秒生存した", bonus: 50 },
+  level20: { name: "レベル20到達", desc: "1回のランでレベル20に到達した", bonus: 50 },
+  relic5: { name: "レリック5個", desc: "1ランでレリックを5個集めた", bonus: 50 },
+  dailyClear: { name: "デイリークリア", desc: "デイリーチャレンジをクリア", bonus: 50 },
+};
+
+export const ENEMY_INFO = [
+  { id: "slime", name: "スライム", hint: "まっすぐ近づいてくる基本の敵" },
+  { id: "frog", name: "カエル", hint: "溜めてから大きく跳ぶ" },
+  { id: "ghost", name: "幽霊", hint: "ゆらゆら蛇行しながら接近" },
+  { id: "snake", name: "蛇", hint: "速い。周期的にダッシュする" },
+  { id: "bat", name: "コウモリ", hint: "飛行。波打つように飛ぶ" },
+  { id: "bird", name: "鳥", hint: "最速クラス。加速と減速を繰り返す" },
+  { id: "eyeball", name: "眼球", hint: "赤く光ったらチャージの合図" },
+  { id: "fish", name: "魚群", hint: "群れの流れに乗ってうねる" },
+  { id: "jelly", name: "クラゲ", hint: "倒すと鈍足の泡を残す" },
+  { id: "wisp", name: "鬼火", hint: "渦を巻いて近づく" },
+  { id: "butterfly", name: "蝶", hint: "近づくと逃げる。高XP" },
+  { id: "skull", name: "飛翔髑髏", hint: "ボスとして現れる強敵" },
+];
+
+function loadAch() {
+  try {
+    const s = JSON.parse(localStorage.getItem(ACH_KEY));
+    if (s && typeof s === "object") {
+      return {
+        unlocked: Array.isArray(s.unlocked) ? s.unlocked.filter((id) => id in ACHIEVEMENTS) : [],
+        enemyKills: (s.enemyKills && typeof s.enemyKills === "object") ? { ...s.enemyKills } : {},
+        evoSeen: Array.isArray(s.evoSeen) ? [...s.evoSeen] : [],
+        totalKills: Math.max(0, s.totalKills | 0),
+      };
+    }
+  } catch { /* 破損時は初期状態からやり直し */ }
+  return { unlocked: [], enemyKills: {}, evoSeen: [], totalKills: 0 };
+}
+
+const achSave = loadAch();
+const persistAch = () => { try { localStorage.setItem(ACH_KEY, JSON.stringify(achSave)); } catch { /* ignore */ } };
+
+export function getAch() {
+  return {
+    unlocked: [...achSave.unlocked],
+    enemyKills: { ...achSave.enemyKills },
+    evoSeen: [...achSave.evoSeen],
+    totalKills: achSave.totalKills,
+  };
+}
+
+export function isAchUnlocked(id) {
+  return achSave.unlocked.includes(id);
+}
+
+export function unlockAch(id) {
+  if (!(id in ACHIEVEMENTS) || isAchUnlocked(id)) return 0;
+  achSave.unlocked.push(id);
+  persistAch();
+  return ACHIEVEMENTS[id].bonus; // 入金は呼び出し側（game の achPending → bankRun で一括）
+}
+
+let lastAchWrite = 0;
+export function flushAch() { lastAchWrite = Date.now(); persistAch(); }
+export function addEnemyKill(typeId) {
+  if (typeId) {
+    achSave.enemyKills[typeId] = (achSave.enemyKills[typeId] | 0) + 1;
+  }
+  achSave.totalKills += 1;
+  const now = Date.now(); // 毎キルの localStorage 書き込みは避け、最大1秒に1回だけ保存
+  if (now - lastAchWrite > 1000) { lastAchWrite = now; persistAch(); }
+}
+
+export function addEvoSeen(evoId) {
+  if (evoId && !achSave.evoSeen.includes(evoId)) {
+    achSave.evoSeen.push(evoId);
+    persistAch();
+  }
+}
